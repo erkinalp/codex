@@ -50,7 +50,8 @@ const SecureCredentials = {
     const errorMessage = error instanceof Error ? error.message : String(error);
     
     return errorMessage.replace(/Bearer\s+[a-zA-Z0-9._-]+/g, 'Bearer [REDACTED]')
-      .replace(/api[_-]?key[=:]\s*[a-zA-Z0-9._-]+/gi, 'api_key=[REDACTED]');
+      .replace(/api[_-]?key[=:]\s*[a-zA-Z0-9._-]+/gi, 'api_key=[REDACTED]')
+      .replace(/apikey[=:]\s*[a-zA-Z0-9._-]+/gi, 'apikey=[REDACTED]');
   }
 };
 
