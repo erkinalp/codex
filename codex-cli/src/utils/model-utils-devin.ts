@@ -1,4 +1,4 @@
-import { DEVIN_API_KEY as _DEVIN_API_KEY } from "./config";
+import { DEVIN_API_KEY } from "./config.js";
 
 
 export const DEVIN_MODELS: Array<string> = ["devin-standard", "devin-deep"];

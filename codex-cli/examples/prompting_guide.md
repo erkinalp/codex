@@ -61,6 +61,40 @@ Project-specific instructions loaded from the current directory or Git root. Use
 ## Prompting techniques
 We recently published a [GPT 4.1 prompting guide](https://cookbook.openai.com/examples/gpt4-1_prompting_guide) which contains excellent intuitions for getting the most out of our latest models. It also contains content for how to build agentic workflows from scratch, which may be useful when customizing the Codex CLI for your needs. The Codex CLI is a reference implementation for agentic coding, and puts into practice many of the ideas in that document.
 
+### Devin AI Models
+When using Devin AI models (`devin-standard` or `devin-deep`), consider these additional prompting techniques:
+
+1. **Approval Modes**: Devin uses different approval modes than OpenAI models:
+   ```
+   # Approve Plan mode (sync_confirm) - Devin creates a plan and waits for your approval
+   codex --model devin-standard --approval-mode approve-plan "Refactor this component"
+   
+   # Full Auto mode (auto_confirm) - Devin executes the plan without waiting for approval
+   codex --model devin-standard --approval-mode full-auto "Refactor this component"
+   ```
+
+2. **File Attachments**: Devin models excel at analyzing files. You can reference files directly in your prompts:
+   ```
+   codex --model devin-standard "Analyze the performance issues in src/components/DataTable.tsx"
+   ```
+
+3. **Structured Output**: Devin models support structured output, which can enhance the presentation in Codex UI:
+   ```
+   codex --model devin-deep "Create a detailed code review report for this repository"
+   ```
+
+4. **Deep Effort Sessions**: For complex tasks, use the `devin-deep` model which provides more thorough analysis:
+   ```
+   codex --model devin-deep "Refactor our authentication system to use JWT tokens"
+   ```
+
+5. **File Upload Handling**: When working with files, Codex CLI automatically handles file presentation to the Devin agent:
+   ```
+   codex --model devin-standard "Analyze these images" image1.jpg image2.png
+   ```
+
+For more details on Devin AI capabilities, see [DEVIN_API.md](../DEVIN_API.md).
+
 There are three common prompting patterns when working with Codex. They roughly traverse task complexity and the level of agency you wish to provide to the Codex CLI.
 
 ### Small requests

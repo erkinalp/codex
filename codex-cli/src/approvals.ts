@@ -61,7 +61,13 @@ export type ApprovalPolicy =
    * where network access is disabled and writes are limited to a specific set
    * of paths.
    */
-  | "full-auto";
+  | "full-auto"
+  
+  /**
+   * Devin-specific mode where the agent creates a plan and waits for user approval
+   * before executing it. Maps to Devin API's "sync_confirm" planning_mode_agency.
+   */
+  | "approve-plan";
 
 /**
  * Tries to assess whether a command is safe to run, though may defer to the
@@ -122,6 +128,11 @@ export function canAutoApprove(
             group: "Running commands",
             runInSandbox: true,
           };
+        case "approve-plan":
+          // In approve-plan mode (Devin-specific), we ask the user for approval
+          return {
+            type: "ask-user",
+          };
         case "suggest":
         case "auto-edit":
           // In all other modes, since we cannot reason about the command, we
@@ -170,6 +181,12 @@ function canAutoApproveApplyPatch(
       // Continue to see if this can be auto-approved.
       break;
     case "suggest":
+      return {
+        type: "ask-user",
+        applyPatch: { patch: applyPatchArg },
+      };
+    case "approve-plan":
+      // In approve-plan mode (Devin-specific), we ask the user for approval
       return {
         type: "ask-user",
         applyPatch: { patch: applyPatchArg },

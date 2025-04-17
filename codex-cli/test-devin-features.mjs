@@ -4,7 +4,8 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { DevinAgent } from './dist/utils/agent/devin/devin-agent.js';
+import axios from 'axios';
+import { DevinAgent } from './src/utils/agent/devin/devin-agent.js';
 
 // Get current directory
 const __filename = fileURLToPath(import.meta.url);

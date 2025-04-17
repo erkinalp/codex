@@ -60,13 +60,17 @@ Install globally:
 npm install -g @openai/codex
 ```
 
-Next, set your OpenAI API key as an environment variable:
+Next, set your API key as an environment variable:
 
 ```shell
-export OPENAI_API_KEY="your-api-key-here"
+# For OpenAI API
+export OPENAI_API_KEY="your-openai-api-key-here"
+
+# For Devin AI API (optional)
+export DEVIN_API_KEY="your-devin-api-key-here"
 ```
 
-> **Note:** This command sets the key only for your current terminal session. To make it permanent, add the `export` line to your shell's configuration file (e.g., `~/.zshrc`).
+> **Note:** These commands set the keys only for your current terminal session. To make them permanent, add the `export` lines to your shell's configuration file (e.g., `~/.zshrc`). Devin API keys start with `apk_`.
 
 Run interactively:
 
@@ -168,7 +172,11 @@ Both approaches are _transparent_ to everyday usage – you still run `codex` fr
 | `codex -q "…"`                       | Non‑interactive "quiet mode"        | `codex -q --json "explain utils.ts"` |
 | `codex completion <bash\|zsh\|fish>` | Print shell completion script       | `codex completion bash`              |
 
-Key flags: `--model/-m`, `--approval-mode/-a`, and `--quiet/-q`.
+Key flags: `--model/-m`, `--approval-mode/-a`, `--quiet/-q`, and `--devin-api-key` (for Devin AI models).
+
+Note: Devin AI models use different approval modes than OpenAI models:
+- `--approval-mode approve-plan`: Devin will create a plan and wait for your approval (equivalent to `sync_confirm` in the API)
+- `--approval-mode full-auto`: Devin will automatically execute the plan without waiting for approval (equivalent to `auto_confirm` in the API)
 
 ---
 
@@ -193,7 +201,9 @@ Run Codex head‑less in pipelines. Example GitHub Action step:
   run: |
     npm install -g @openai/codex
     export OPENAI_API_KEY="${{ secrets.OPENAI_KEY }}"
+    # Or for Devin AI: export DEVIN_API_KEY="${{ secrets.DEVIN_KEY }}"
     codex -a auto-edit --quiet "update CHANGELOG for next release"
+    # Or with Devin: codex -a auto-edit --quiet --model devin-standard "update CHANGELOG for next release"
 ```
 
 Set `CODEX_QUIET_MODE=1` to silence interactive UI noise.
@@ -203,6 +213,8 @@ Set `CODEX_QUIET_MODE=1` to silence interactive UI noise.
 ## Recipes
 
 Below are a few bite‑size examples you can copy‑paste. Replace the text in quotes with your own task. See the [prompting guide](https://github.com/openai/codex/blob/main/codex-cli/examples/prompting_guide.md) for more tips and usage patterns.
+
+For Devin AI-specific features and documentation, see [DEVIN_API.md](./codex-cli/DEVIN_API.md).
 
 | ✨  | What you type                                                                   | What happens                                                               |
 | --- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
@@ -261,7 +273,9 @@ Codex looks for config files in **`~/.codex/`**.
 
 ```yaml
 # ~/.codex/config.yaml
-model: o4-mini # Default model
+model: o4-mini # Default model (OpenAI)
+# model: devin-standard # Use Devin AI model
+DEVIN_API_KEY: your-devin-api-key-here # Optional: Devin AI API key
 fullAutoErrorMode: ask-user # or ignore-and-continue
 ```
 
@@ -302,6 +316,12 @@ Not directly. It requires [Windows Subsystem for Linux (WSL2)](https://learn.mic
 <summary>Which models are supported?</summary>
 
 Any model available with [Responses API](https://platform.openai.com/docs/api-reference/responses). The default is `o4-mini`, but pass `--model gpt-4o` or set `model: gpt-4o` in your config file to override.
+
+Codex CLI also supports Devin AI models:
+- `devin-standard`: Standard Devin model for most tasks
+- `devin-deep`: Deep effort Devin model for more complex tasks
+
+To use Devin models, you need a Devin API key. See [DEVIN_API.md](./codex-cli/DEVIN_API.md) for detailed documentation.
 
 </details>
 

@@ -643,11 +643,37 @@ export class AgentLoop {
               }
             }
 
+            const isOutOfCreditsError = 
+              status === 402 || 
+              errCtx.code === "insufficient_quota" ||
+              (typeof errCtx.message === "string" && 
+                (errCtx.message.includes("insufficient funds") || 
+                 errCtx.message.includes("out of credits") || 
+                 errCtx.message.includes("billing") ||
+                 errCtx.message.includes("quota exceeded")));
+            
+            if (isOutOfCreditsError) {
+              this.onItem({
+                id: `error-${Date.now()}`,
+                type: "message",
+                role: "system",
+                content: [
+                  {
+                    type: "input_text",
+                    text: "⚠️  Insufficient credits. Your OpenAI account has run out of credits. Please add more credits to your account and try again."
+                  },
+                ],
+              });
+              this.onLoading(false);
+              return;
+            }
+            
             const isClientError =
               (typeof status === "number" &&
                 status >= 400 &&
                 status < 500 &&
-                status !== 429) ||
+                status !== 429 &&
+                status !== 402) || // Exclude 402 as it's handled above
               errCtx.code === "invalid_request_error" ||
               errCtx.type === "invalid_request_error";
             if (isClientError) {

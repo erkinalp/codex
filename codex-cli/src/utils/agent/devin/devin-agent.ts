@@ -80,6 +80,10 @@ interface DevinApiResponse {
   status: string;
   output?: string | Array<DevinStructuredOutput>;
   error?: string;
+  plan?: {
+    content: string;
+    status: "pending" | "approved" | "rejected";
+  };
 }
 
 /**
@@ -91,7 +95,6 @@ interface DevinApiResponse {
 export class DevinAgent {
   private apiKey: string;
   private sessionId: string | null = null;
-  // @ts-expect-error - Will be used in future implementations
   private _approvalPolicy: ApprovalPolicy;
   private config: AppConfig;
   private baseUrl: string = "https://api.devin.ai/v1";
@@ -210,16 +213,32 @@ export class DevinAgent {
    * Create a new Devin session
    * @param prompt The prompt to send to Devin
    * @param effortLevel The effort level for the session (standard or deep)
+   * @param planningModeAgency The planning mode agency (auto_confirm or sync_confirm)
    */
-  private async createSession(prompt: string, effortLevel: "standard" | "deep" = "standard"): Promise<string> {
+  private async createSession(
+    prompt: string, 
+    effortLevel: "standard" | "deep" = "standard",
+    planningModeAgency?: "auto_confirm" | "sync_confirm"
+  ): Promise<string> {
     try {
       this.retryCount = 0;
+      
+      if (!planningModeAgency) {
+        planningModeAgency = this._approvalPolicy === "full-auto" ? 
+          "auto_confirm" : 
+          (this._approvalPolicy === "approve-plan" ? "sync_confirm" : "auto_confirm");
+      }
+      
+      if (isLoggingEnabled()) {
+        log(`DevinAgent.createSession() using planning_mode_agency: ${planningModeAgency}`);
+      }
       
       const response = await axios.post(
         `${this.baseUrl}/sessions`,
         {
           prompt,
           effort_level: effortLevel,
+          planning_mode_agency: planningModeAgency,
         },
         {
           headers: {
@@ -245,6 +264,16 @@ export class DevinAgent {
       const axiosError = error as { response?: { status: number; data?: { error?: string } } };
       if (axiosError.response?.status === 401 || axiosError.response?.status === 403) {
         throw new Error("Authentication failed. Please check your Devin API key.");
+      }
+      
+      // Handle "out of credits" errors
+      if (axiosError.response?.status === 402 || 
+          (axiosError.response?.data?.error && 
+           typeof axiosError.response.data.error === 'string' && 
+           (axiosError.response.data.error.includes('insufficient credits') || 
+            axiosError.response.data.error.includes('out of credits') ||
+            axiosError.response.data.error.includes('credit limit')))) {
+        throw new Error("Insufficient credits. Your Devin AI account has run out of credits. Please add more credits to your account and try again.");
       }
       
       // Handle rate limiting and server errors with retry logic
@@ -311,6 +340,16 @@ export class DevinAgent {
       const axiosError = error as { response?: { status: number; data?: { error?: string } } };
       if (axiosError.response?.status === 401 || axiosError.response?.status === 403) {
         throw new Error("Authentication failed. Please check your Devin API key.");
+      }
+      
+      // Handle "out of credits" errors
+      if (axiosError.response?.status === 402 || 
+          (axiosError.response?.data?.error && 
+           typeof axiosError.response.data.error === 'string' && 
+           (axiosError.response.data.error.includes('insufficient credits') || 
+            axiosError.response.data.error.includes('out of credits') ||
+            axiosError.response.data.error.includes('credit limit')))) {
+        throw new Error("Insufficient credits. Your Devin AI account has run out of credits. Please add more credits to your account and try again.");
       }
       
       // Handle rate limiting and server errors with retry logic
@@ -382,7 +421,36 @@ export class DevinAgent {
       this.retryCount = 0;
       
       const formData = new FormData();
-      const blob = new Blob([fileContent], { type: 'application/octet-stream' });
+      const buffer = typeof fileContent === 'string' ? Buffer.from(fileContent) : fileContent;
+      
+      let mimeType = 'application/octet-stream';
+      try {
+        const { fileTypeFromBuffer } = await import('file-type');
+        const fileType = await fileTypeFromBuffer(buffer);
+        if (fileType) {
+          mimeType = fileType.mime;
+        } else {
+          if (filePath.endsWith('.js') || filePath.endsWith('.ts')) mimeType = 'application/javascript';
+          else if (filePath.endsWith('.json')) mimeType = 'application/json';
+          else if (filePath.endsWith('.html')) mimeType = 'text/html';
+          else if (filePath.endsWith('.css')) mimeType = 'text/css';
+          else if (filePath.endsWith('.md')) mimeType = 'text/markdown';
+          else if (filePath.endsWith('.txt')) mimeType = 'text/plain';
+          else if (filePath.endsWith('.py')) mimeType = 'text/x-python';
+          else if (filePath.endsWith('.java')) mimeType = 'text/x-java';
+          else if (filePath.endsWith('.c') || filePath.endsWith('.cpp') || filePath.endsWith('.h')) mimeType = 'text/x-c';
+          else if (filePath.endsWith('.go')) mimeType = 'text/x-go';
+          else if (filePath.endsWith('.rs')) mimeType = 'text/x-rust';
+          else if (filePath.endsWith('.rb')) mimeType = 'text/x-ruby';
+          else if (filePath.endsWith('.php')) mimeType = 'text/x-php';
+        }
+      } catch (error) {
+        if (isLoggingEnabled()) {
+          log(`MIME type detection failed, using default: ${error}`);
+        }
+      }
+      
+      const blob = new Blob([buffer], { type: mimeType });
       const fileName = filePath.split('/').pop() || 'file';
       formData.append('file', blob, fileName);
       
@@ -422,6 +490,16 @@ export class DevinAgent {
         throw new Error("Authentication failed. Please check your Devin API key.");
       }
       
+      // Handle "out of credits" errors
+      if (axiosError.response?.status === 402 || 
+          (axiosError.response?.data?.error && 
+           typeof axiosError.response.data.error === 'string' && 
+           (axiosError.response.data.error.includes('insufficient credits') || 
+            axiosError.response.data.error.includes('out of credits') ||
+            axiosError.response.data.error.includes('credit limit')))) {
+        throw new Error("Insufficient credits. Your Devin AI account has run out of credits. Please add more credits to your account and try again.");
+      }
+      
       // Handle rate limiting and server errors with retry logic
       if (axiosError.response && (axiosError.response.status === 429 || axiosError.response.status >= 500) && this.retryCount < this.maxRetries) {
         this.retryCount++;
@@ -433,6 +511,12 @@ export class DevinAgent {
         
         await new Promise(resolve => setTimeout(resolve, delay));
         return this.uploadFile(filePath, fileContent, presentToAgent);
+      }
+      
+      // Handle network connectivity errors
+      const networkError = error as { code?: string };
+      if (networkError.code === 'ECONNREFUSED' || networkError.code === 'ENOTFOUND' || networkError.code === 'ETIMEDOUT') {
+        throw new Error(`Network error: Could not connect to Devin AI API. Please check your internet connection and try again. (${networkError.code})`);
       }
       
       throw error;
@@ -528,6 +612,14 @@ export class DevinAgent {
       const modelName = this.config.model || "devin-standard";
       const effortLevel = modelName === "devin-deep" ? "deep" : "standard";
       
+      const planningModeAgency = this._approvalPolicy === "full-auto" ? 
+        "auto_confirm" : 
+        (this._approvalPolicy === "approve-plan" ? "sync_confirm" : "auto_confirm");
+      
+      if (isLoggingEnabled()) {
+        log(`DevinAgent.run(): using planning_mode_agency: ${planningModeAgency}`);
+      }
+      
       try {
         const extractedAttachments = this.extractFileAttachments(input);
         
@@ -540,7 +632,7 @@ export class DevinAgent {
         if (this.sessionId) {
           await this.sendMessage(this.sessionId, prompt, allAttachments.length > 0 ? allAttachments : undefined);
         } else {
-          this.sessionId = await this.createSession(prompt, effortLevel);
+          this.sessionId = await this.createSession(prompt, effortLevel, planningModeAgency);
           this.onLastResponseId(this.sessionId);
           
           if (allAttachments.length > 0) {
@@ -695,6 +787,42 @@ export class DevinAgent {
    */
   private processSessionOutput(sessionData: DevinApiResponse): void {
     try {
+      if (sessionData.plan) {
+        const planStatus = sessionData.plan.status;
+        const planPrefix = planStatus === "pending" ? 
+          "📋 **Plan Awaiting Approval**\n\n" : 
+          (planStatus === "approved" ? "✅ **Plan Approved**\n\n" : "❌ **Plan Rejected**\n\n");
+        
+        const responseItem = {
+          id: `devin-plan-${Date.now()}`,
+          type: "message",
+          role: "assistant",
+          content: [
+            {
+              type: "output_text",
+              text: `${planPrefix}${sessionData.plan.content}`,
+              annotations: [],
+            } as ResponseOutputText,
+          ],
+        } as ResponseItem;
+        this.onItem(responseItem);
+        
+        if (planStatus === "pending" && this._approvalPolicy === "approve-plan") {
+          const approvalItem = {
+            id: `devin-plan-approval-${Date.now()}`,
+            type: "message",
+            role: "system",
+            content: [
+              {
+                type: "input_text",
+                text: "Do you want to approve this plan? (Type 'yes' to approve or 'no' to reject)",
+              } as ResponseInputText,
+            ],
+          } as ResponseItem;
+          this.onItem(approvalItem);
+        }
+      }
+      
       if (typeof sessionData.output === "string") {
         const responseItem = {
           id: `devin-${Date.now()}`,
@@ -735,6 +863,63 @@ export class DevinAgent {
                 {
                   type: "output_text",
                   text: `\`\`\`${(output.content as {language?: string, code: string}).language || ""}\n${(output.content as {language?: string, code: string}).code}\n\`\`\``,
+                  annotations: [],
+                } as ResponseOutputText,
+              ],
+            } as ResponseItem;
+            this.onItem(responseItem);
+          } else if (output.type === "table") {
+            // Handle table output
+            const table = output.content as { headers: string[], rows: string[][] };
+            let tableMarkdown = "";
+            
+            if (table.headers && table.headers.length > 0) {
+              tableMarkdown += `| ${table.headers.join(" | ")} |\n`;
+              tableMarkdown += `| ${table.headers.map(() => "---").join(" | ")} |\n`;
+              
+              if (table.rows && table.rows.length > 0) {
+                table.rows.forEach(row => {
+                  tableMarkdown += `| ${row.join(" | ")} |\n`;
+                });
+              }
+            }
+            
+            const responseItem = {
+              id: `devin-${Date.now()}`,
+              type: "message",
+              role: "assistant",
+              content: [
+                {
+                  type: "output_text",
+                  text: tableMarkdown,
+                  annotations: [],
+                } as ResponseOutputText,
+              ],
+            } as ResponseItem;
+            this.onItem(responseItem);
+          } else if (output.type === "list") {
+            // Handle list output
+            const list = output.content as { items: string[], ordered: boolean };
+            let listMarkdown = "";
+            
+            if (list.items && list.items.length > 0) {
+              list.items.forEach((item, index) => {
+                if (list.ordered) {
+                  listMarkdown += `${index + 1}. ${item}\n`;
+                } else {
+                  listMarkdown += `* ${item}\n`;
+                }
+              });
+            }
+            
+            const responseItem = {
+              id: `devin-${Date.now()}`,
+              type: "message",
+              role: "assistant",
+              content: [
+                {
+                  type: "output_text",
+                  text: listMarkdown,
                   annotations: [],
                 } as ResponseOutputText,
               ],

@@ -50,6 +50,23 @@ or
 codex --model devin-deep
 ```
 
+### Approval Modes
+
+Devin AI supports two approval modes:
+
+- `sync_confirm` (Approve Plan): Devin will create a plan and wait for your approval before executing it
+- `auto_confirm` (Full Auto): Devin will automatically execute the plan without waiting for approval
+
+You can specify the approval mode when running Codex CLI:
+
+```bash
+# Approve Plan mode
+codex --model devin-standard --approval-mode approve-plan
+
+# Full Auto mode
+codex --model devin-standard --approval-mode full-auto
+```
+
 ### File Uploads
 
 Codex CLI supports file uploads to Devin AI. When you reference a file in your conversation, Codex CLI will automatically upload the file and present it to the Devin agent.
