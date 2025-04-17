@@ -1027,7 +1027,7 @@ export class DevinAgent {
       
       return `${userMessage}\n\nNote: I noticed you referenced local file path(s): ${localFilePaths.join(', ')}. 
 The Devin agent can only access files that are explicitly shared. 
-Would you like to upload this file or use remote processing instead?`;
+Would you like to upload this file, use remote processing instead, or cancel this request?`;
     }
     
     return userMessage;

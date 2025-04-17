@@ -131,10 +131,10 @@ In this scenario, Codex CLI will detect the local file path and add a prompt to 
 ```
 Note: I noticed you referenced local file path(s): /home/user/myproject/src/main.js. 
 The Devin agent can only access files that are explicitly shared. 
-Would you like to upload this file or use remote processing instead?
+Would you like to upload this file, use remote processing instead, or cancel this request?
 ```
 
-This helps users understand that the Devin agent cannot directly access files on their local system and guides them toward using file uploads or remote processing options.
+This helps users understand that the Devin agent cannot directly access files on their local system and gives them options to proceed, including uploading the file, using remote processing, or canceling the request entirely if the file is not suitable for remote processing.
 
 ## Examples
 

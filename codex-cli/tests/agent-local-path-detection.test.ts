@@ -1,5 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+vi.mock("../src/utils/agent/devin/devin-agent.js", () => {
+  return {
+    __esModule: true,
+    DevinAgent: vi.fn(),
+    SecureCredentials: {
+      validateApiKey: () => true,
+      maskForLogging: (_: string) => "***",
+      sanitizeErrorMessage: (error: Error) => error.message,
+    },
+  };
+});
+
 vi.mock("../src/utils/agent/log.js", () => ({
   __esModule: true,
   log: vi.fn(),
@@ -59,6 +71,7 @@ describe("DevinAgent – Local File Path Detection", () => {
     agent["formatInputForDevin"](userMessage);
     
     expect(formattedInput).toContain("Note: I noticed you referenced local file path(s)");
+    expect(formattedInput).toContain("or cancel this request");
     expect(formattedInput).toContain("/home/user/project/src/main.js");
   });
   
@@ -74,6 +87,7 @@ describe("DevinAgent – Local File Path Detection", () => {
     agent["formatInputForDevin"](userMessage);
     
     expect(formattedInput).toContain("Note: I noticed you referenced local file path(s)");
+    expect(formattedInput).toContain("or cancel this request");
     expect(formattedInput).toContain("C:\\Users\\name\\Documents\\project\\main.js");
   });
   
@@ -89,6 +103,7 @@ describe("DevinAgent – Local File Path Detection", () => {
     agent["formatInputForDevin"](userMessage);
     
     expect(formattedInput).toContain("Note: I noticed you referenced local file path(s)");
+    expect(formattedInput).toContain("or cancel this request");
     expect(formattedInput).toContain("./src/components/Button.tsx");
   });
   
@@ -104,6 +119,7 @@ describe("DevinAgent – Local File Path Detection", () => {
     agent["formatInputForDevin"](userMessage);
     
     expect(formattedInput).toContain("Note: I noticed you referenced local file path(s)");
+    expect(formattedInput).toContain("or cancel this request");
     expect(formattedInput).toContain("$HOME/projects/app/config.json");
   });
   
@@ -122,6 +138,7 @@ describe("DevinAgent – Local File Path Detection", () => {
     agent["formatInputForDevin"](userMessage);
     
     expect(formattedInput).toContain("Note: I noticed you referenced local file path(s)");
+    expect(formattedInput).toContain("or cancel this request");
     expect(formattedInput).toContain("/home/user/project/src/main.js");
     expect(formattedInput).toContain("./components/Header.jsx");
   });
