@@ -998,7 +998,7 @@ export class DevinAgent {
    * Format the input for the Devin API
    */
   private formatInputForDevin(input: Array<ResponseInputItem>): string {
-    return input
+    const userMessage = input
       .map((item) => {
         if (item.type === "message" && item.role === "user") {
           if (typeof item.content === "string") {
@@ -1017,6 +1017,48 @@ export class DevinAgent {
         return "";
       })
       .join("\n");
+    
+    const localFilePaths = this.detectLocalFilePaths(userMessage);
+    
+    if (localFilePaths.length > 0) {
+      if (isLoggingEnabled()) {
+        log(`DevinAgent.formatInputForDevin() detected local file paths: ${localFilePaths.join(', ')}`);
+      }
+      
+      return `${userMessage}\n\nNote: I noticed you referenced local file path(s): ${localFilePaths.join(', ')}. 
+The Devin agent can only access files that are explicitly shared. 
+Would you like to upload this file or use remote processing instead?`;
+    }
+    
+    return userMessage;
+  }
+  
+  /**
+   * Detect local file paths in a string
+   * @param input The string to check for local file paths
+   * @returns Array of detected local file paths
+   */
+  private detectLocalFilePaths(input: string): string[] {
+    if (!input) return [];
+    
+    const patterns = [
+      /(?:\/[a-zA-Z0-9_.-]+)+\.[a-zA-Z0-9]+/g,
+      /(?:[A-Za-z]:\\(?:[a-zA-Z0-9_.-]+\\)+[a-zA-Z0-9_.-]+\.[a-zA-Z0-9]+)/g,
+      /(?:\.{1,2}\/(?:[a-zA-Z0-9_.-]+\/)*[a-zA-Z0-9_.-]+\.[a-zA-Z0-9]+)/g,
+      /(?:\.{1,2}\\(?:[a-zA-Z0-9_.-]+\\)*[a-zA-Z0-9_.-]+\.[a-zA-Z0-9]+)/g,
+      /(?:\$[A-Za-z0-9_]+\/(?:[a-zA-Z0-9_.-]+\/)*[a-zA-Z0-9_.-]+\.[a-zA-Z0-9]+)/g,
+      /(?:%[A-Za-z0-9_]+%\\(?:[a-zA-Z0-9_.-]+\\)*[a-zA-Z0-9_.-]+\.[a-zA-Z0-9]+)/g
+    ];
+    
+    const matches: string[] = [];
+    patterns.forEach(pattern => {
+      const patternMatches = input.match(pattern);
+      if (patternMatches) {
+        matches.push(...patternMatches);
+      }
+    });
+    
+    return [...new Set(matches)];
   }
   
   /**

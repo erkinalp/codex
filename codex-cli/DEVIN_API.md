@@ -115,6 +115,27 @@ codex --model devin-standard
 
 If the Devin agent generates and returns an attachment (like an image or a file), it will be properly displayed or linked in the CLI interface.
 
+### Local File Path Detection
+
+Codex CLI detects when users refer to local file paths in their messages and prompts them for remote processing, as the Devin agent can only manipulate files it has access to.
+
+Example:
+
+```bash
+codex --model devin-standard
+> Can you analyze the file at /home/user/myproject/src/main.js?
+```
+
+In this scenario, Codex CLI will detect the local file path and add a prompt to the message:
+
+```
+Note: I noticed you referenced local file path(s): /home/user/myproject/src/main.js. 
+The Devin agent can only access files that are explicitly shared. 
+Would you like to upload this file or use remote processing instead?
+```
+
+This helps users understand that the Devin agent cannot directly access files on their local system and guides them toward using file uploads or remote processing options.
+
 ## Examples
 
 ### Example 1: Basic Conversation
