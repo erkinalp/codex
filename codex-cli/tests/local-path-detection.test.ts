@@ -41,7 +41,15 @@ describe("Local File Path Detection", () => {
     
     const urlPattern = /https?:\/\/[^\s]+/g;
     const urlMatches = userMessage.match(urlPattern) || [];
-    const filteredPaths = localFilePaths.filter(path => !urlMatches.includes(path));
+    
+    const filteredPaths = localFilePaths.filter(path => {
+      for (const url of urlMatches) {
+        if (url.includes(path)) {
+          return false;
+        }
+      }
+      return true;
+    });
     
     if (filteredPaths.length > 0) {
       return `${userMessage}\n\nNote: I noticed you referenced local file path(s): ${filteredPaths.join(', ')}. 
