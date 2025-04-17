@@ -119,6 +119,7 @@ export class DevinAgent {
   private maxRetries = 3;
   private retryDelayMs = 2500;
   private activeSessions: Map<string, {status: string; title: string}> = new Map();
+  private lastUserMessage: string | null = null;
 
   private onItem: (item: ResponseItem) => void;
   private onLoading: (loading: boolean) => void;
@@ -618,7 +619,7 @@ export class DevinAgent {
       this.sessionId = previousResponseId;
       this.onLoading(true);
 
-      const prompt = this.formatInputForDevin(input);
+      const prompt = await this.formatInputForDevin(input);
       const modelName = this.config.model || "devin-standard";
       const effortLevel = modelName === "devin-deep" ? "deep" : "standard";
       
@@ -997,7 +998,7 @@ export class DevinAgent {
   /**
    * Format the input for the Devin API
    */
-  private formatInputForDevin(input: Array<ResponseInputItem>): string {
+  private async formatInputForDevin(input: Array<ResponseInputItem>): Promise<string> {
     const userMessage = input
       .map((item) => {
         if (item.type === "message" && item.role === "user") {
@@ -1018,6 +1019,10 @@ export class DevinAgent {
       })
       .join("\n");
     
+    if (this.isResponseToLocalFilePathPrompt(userMessage)) {
+      return await this.handleLocalFilePathResponse(userMessage);
+    }
+    
     const localFilePaths = this.detectLocalFilePaths(userMessage);
     
     if (localFilePaths.length > 0) {
@@ -1025,12 +1030,129 @@ export class DevinAgent {
         log(`DevinAgent.formatInputForDevin() detected local file paths: ${localFilePaths.join(', ')}`);
       }
       
+      this.lastUserMessage = userMessage;
+      
       return `${userMessage}\n\nNote: I noticed you referenced local file path(s): ${localFilePaths.join(', ')}. 
 The Devin agent can only access files that are explicitly shared. 
 Would you like to upload this file, use remote processing instead, or cancel this request?`;
     }
     
     return userMessage;
+  }
+  
+  /**
+   * Check if the user message is a response to a local file path prompt
+   * @param message The user message
+   * @returns True if the message is a response to a local file path prompt
+   */
+  private isResponseToLocalFilePathPrompt(message: string): boolean {
+    const uploadKeywords = ['upload', 'yes', 'upload file', 'upload the file', 'upload files'];
+    const remoteKeywords = ['remote', 'remote processing', 'use remote processing', 'process remotely'];
+    const cancelKeywords = ['cancel', 'cancel request', 'cancel this request', 'no'];
+    
+    const lowerMessage = message.toLowerCase().trim();
+    
+    return uploadKeywords.some(keyword => lowerMessage.includes(keyword)) ||
+           remoteKeywords.some(keyword => lowerMessage.includes(keyword)) ||
+           cancelKeywords.some(keyword => lowerMessage.includes(keyword));
+  }
+  
+  /**
+   * Handle user response to local file path prompt
+   * @param message The user message
+   * @returns The processed message with URLs substituted for uploaded files
+   */
+  private async handleLocalFilePathResponse(message: string): Promise<string> {
+    const uploadKeywords = ['upload', 'yes', 'upload file', 'upload the file', 'upload files'];
+    const remoteKeywords = ['remote', 'remote processing', 'use remote processing', 'process remotely'];
+    const cancelKeywords = ['cancel', 'cancel request', 'cancel this request', 'no'];
+    
+    const lowerMessage = message.toLowerCase().trim();
+    
+    if (cancelKeywords.some(keyword => lowerMessage.includes(keyword))) {
+      if (isLoggingEnabled()) {
+        log(`DevinAgent.handleLocalFilePathResponse() user canceled the request`);
+      }
+      return "Request canceled by user.";
+    }
+    
+    if (remoteKeywords.some(keyword => lowerMessage.includes(keyword))) {
+      if (isLoggingEnabled()) {
+        log(`DevinAgent.handleLocalFilePathResponse() user chose remote processing`);
+      }
+      
+      const originalMessageMatch = this.lastUserMessage?.match(/^([\s\S]*?)(?:\n\nNote: I noticed you referenced local file path)/);
+      if (originalMessageMatch && originalMessageMatch[1]) {
+        return originalMessageMatch[1];
+      }
+      
+      return message;
+    }
+    
+    if (uploadKeywords.some(keyword => lowerMessage.includes(keyword))) {
+      if (isLoggingEnabled()) {
+        log(`DevinAgent.handleLocalFilePathResponse() user chose to upload file(s)`);
+      }
+      
+      const originalMessageMatch = this.lastUserMessage?.match(/^([\s\S]*?)(?:\n\nNote: I noticed you referenced local file path)/);
+      const filePathsMatch = this.lastUserMessage?.match(/local file path\(s\): (.*?)\./);
+      
+      if (originalMessageMatch && originalMessageMatch[1] && filePathsMatch && filePathsMatch[1]) {
+        const originalMessage = originalMessageMatch[1];
+        const filePaths = filePathsMatch[1].split(', ').map(path => path.trim());
+        
+        let processedMessage = originalMessage;
+        const uploadedFiles: { path: string; url: string; fileName: string }[] = [];
+        
+        for (const filePath of filePaths) {
+          try {
+            const fs = await import('fs/promises');
+            const path = await import('path');
+            
+            const fileContent = await fs.readFile(filePath);
+            const fileName = path.basename(filePath);
+            
+            const fileUrl = await this.uploadFile(filePath, fileContent, true);
+            
+            uploadedFiles.push({ path: filePath, url: fileUrl, fileName });
+            
+            if (isLoggingEnabled()) {
+              log(`DevinAgent.handleLocalFilePathResponse() uploaded file ${filePath} with URL ${fileUrl}`);
+            }
+            
+            // Substitute the file path with the URL in the message by position
+            const markdownLink = `[${fileName}](${fileUrl})`;
+            let startPos = 0;
+            let newProcessedMessage = '';
+            let currentPos;
+            
+            while ((currentPos = processedMessage.indexOf(filePath, startPos)) !== -1) {
+              newProcessedMessage += processedMessage.substring(startPos, currentPos);
+              newProcessedMessage += markdownLink;
+              startPos = currentPos + filePath.length;
+            }
+            
+            newProcessedMessage += processedMessage.substring(startPos);
+            processedMessage = newProcessedMessage;
+          } catch (error) {
+            if (isLoggingEnabled()) {
+              log(`DevinAgent.handleLocalFilePathResponse() error uploading file ${filePath}: ${error}`);
+            }
+          }
+        }
+        
+        if (uploadedFiles.length > 0) {
+          processedMessage += `\n\nI've uploaded the following files for you:\n${uploadedFiles.map(file => `- ${file.fileName}: ${file.url}`).join('\n')}`;
+        }
+        
+        return processedMessage;
+      }
+      
+      return message;
+    }
+    
+    // Default case - just return the message
+    return message;
   }
   
   /**

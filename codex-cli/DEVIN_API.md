@@ -136,6 +136,26 @@ Would you like to upload this file, use remote processing instead, or cancel thi
 
 This helps users understand that the Devin agent cannot directly access files on their local system and gives them options to proceed, including uploading the file, using remote processing, or canceling the request entirely if the file is not suitable for remote processing.
 
+#### File Path URL Substitution
+
+When users choose to upload files from the local file path prompt, Codex CLI automatically:
+
+1. Uploads the file to the Devin API
+2. Substitutes the local file path in the original message with a markdown-formatted link to the uploaded file
+3. Sends the modified message with the substituted URL to the Devin agent
+
+For example, if the user chooses to upload the file from the previous example, the message sent to Devin would look like:
+
+```
+Can you analyze the file at [main.js](https://api.devin.ai/v1/files/file_abc123)?
+```
+
+This seamless substitution ensures that:
+- The Devin agent can access and process the file content
+- The context of the original request is preserved
+- The user doesn't need to manually upload and reference the file
+- The conversation flow remains natural and uninterrupted
+
 ## Examples
 
 ### Example 1: Basic Conversation
