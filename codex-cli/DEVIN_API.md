@@ -102,6 +102,19 @@ Codex CLI implements secure credential handling for Devin API keys, including:
 
 Codex CLI handles the presentation of uploaded files to the Devin agent, ensuring that files are correctly accessible to the agent during the conversation.
 
+### Returned Attachments
+
+Codex CLI also handles attachments returned by the Devin agent in responses. When the Devin API returns attachments, they are properly processed and displayed to the user in the CLI interface.
+
+Example:
+
+```bash
+codex --model devin-standard
+> Can you generate a diagram for me?
+```
+
+If the Devin agent generates and returns an attachment (like an image or a file), it will be properly displayed or linked in the CLI interface.
+
 ## Examples
 
 ### Example 1: Basic Conversation

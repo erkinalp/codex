@@ -66,6 +66,16 @@ interface DevinStructuredOutput {
 }
 
 /**
+ * Interface for file output response
+ */
+interface ResponseOutputFile {
+  type: "output_file";
+  file_url: string;
+  filename: string;
+  mime_type: string;
+}
+
+/**
  * Interface for file upload response
  */
 interface FileUploadResponse {
@@ -925,6 +935,39 @@ export class DevinAgent {
               ],
             } as ResponseItem;
             this.onItem(responseItem);
+          } else if (output.type === "attachment") {
+            // Handle attachment output
+            const attachment = output.content as { url: string; filename?: string; mime_type?: string };
+            
+            if (attachment.url) {
+              const attachmentFilename = attachment.filename || `attachment-${Date.now()}`;
+              const attachmentMimeType = attachment.mime_type || 'application/octet-stream';
+              
+              const responseItem = {
+                id: `devin-${Date.now()}`,
+                type: "message",
+                role: "assistant",
+                content: [
+                  {
+                    type: "output_text",
+                    text: `File: ${attachmentFilename}`,
+                    annotations: [],
+                  } as ResponseOutputText,
+                  {
+                    type: "output_file",
+                    file_url: attachment.url,
+                    filename: attachmentFilename,
+                    mime_type: attachmentMimeType,
+                  } as ResponseOutputFile,
+                ],
+              } as ResponseItem;
+              
+              if (isLoggingEnabled()) {
+                log(`DevinAgent.processSessionOutput(): processing attachment ${attachmentFilename} (${attachmentMimeType})`);
+              }
+              
+              this.onItem(responseItem);
+            }
           }
         }
       }
