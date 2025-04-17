@@ -266,16 +266,29 @@ export class DevinAgent {
 
   /**
    * Send a message to an existing Devin session
+   * @param sessionId The ID of the session to send the message to
+   * @param message The message content
+   * @param attachments Optional array of file URLs to attach to the message
    */
-  private async sendMessage(sessionId: string, message: string): Promise<void> {
+  private async sendMessage(sessionId: string, message: string, attachments?: string[]): Promise<void> {
     try {
       this.retryCount = 0;
       
+      const messageData: { content: string; attachments?: string[] } = {
+        content: message
+      };
+      
+      if (attachments && attachments.length > 0) {
+        messageData.attachments = attachments;
+        
+        if (isLoggingEnabled()) {
+          log(`DevinAgent.sendMessage() attaching ${attachments.length} files to message`);
+        }
+      }
+      
       await axios.post(
         `${this.baseUrl}/sessions/${sessionId}/messages`,
-        {
-          content: message,
-        },
+        messageData,
         {
           headers: {
             Authorization: `Bearer ${this.apiKey}`,
@@ -310,7 +323,7 @@ export class DevinAgent {
         }
         
         await new Promise(resolve => setTimeout(resolve, delay));
-        return this.sendMessage(sessionId, message);
+        return this.sendMessage(sessionId, message, attachments);
       }
       
       throw error;
@@ -361,15 +374,17 @@ export class DevinAgent {
    * Upload a file to Devin
    * @param filePath Path to the file to upload
    * @param fileContent Content of the file
+   * @param presentToAgent Whether to automatically present the file to the agent in the next message
    * @returns URL to the uploaded file
    */
-  public async uploadFile(filePath: string, fileContent: Buffer | string): Promise<string> {
+  public async uploadFile(filePath: string, fileContent: Buffer | string, presentToAgent: boolean = true): Promise<string> {
     try {
       this.retryCount = 0;
       
       const formData = new FormData();
       const blob = new Blob([fileContent], { type: 'application/octet-stream' });
-      formData.append('file', blob, filePath.split('/').pop());
+      const fileName = filePath.split('/').pop() || 'file';
+      formData.append('file', blob, fileName);
       
       const response = await axios.post(
         `${this.baseUrl}/attachments`,
@@ -383,12 +398,18 @@ export class DevinAgent {
         }
       );
       
+      const fileUploadResponse = response.data as FileUploadResponse;
+      const fileUrl = fileUploadResponse.url;
+      
       if (isLoggingEnabled()) {
-        log(`DevinAgent.uploadFile() uploaded file: ${filePath}`);
+        log(`DevinAgent.uploadFile() uploaded file: ${filePath} with URL: ${fileUrl}`);
       }
       
-      const fileUploadResponse = response.data as FileUploadResponse;
-      return fileUploadResponse.url;
+      if (presentToAgent && this.sessionId) {
+        await this.presentFileToAgent(this.sessionId, fileUrl, fileName);
+      }
+      
+      return fileUrl;
     } catch (error) {
       if (isLoggingEnabled()) {
         // Use sanitized error message to prevent credential exposure
@@ -411,19 +432,71 @@ export class DevinAgent {
         }
         
         await new Promise(resolve => setTimeout(resolve, delay));
-        return this.uploadFile(filePath, fileContent);
+        return this.uploadFile(filePath, fileContent, presentToAgent);
       }
       
       throw error;
     }
   }
+  
+  /**
+   * Present a file to the Devin agent
+   * @param sessionId The ID of the session to present the file to
+   * @param fileUrl The URL of the file to present
+   * @param fileName The name of the file
+   */
+  private async presentFileToAgent(sessionId: string, fileUrl: string, fileName: string): Promise<void> {
+    try {
+      const message = `I've uploaded a file named "${fileName}" for you to review.`;
+      await this.sendMessage(sessionId, message, [fileUrl]);
+      
+      if (isLoggingEnabled()) {
+        log(`DevinAgent.presentFileToAgent() presented file ${fileName} to session: ${sessionId}`);
+      }
+      
+      // Notify the user that the file was presented to the agent
+      const responseItem = {
+        id: `file-upload-${Date.now()}`,
+        type: "message",
+        role: "system",
+        content: [
+          {
+            type: "input_text",
+            text: `File "${fileName}" has been uploaded and presented to Devin.`,
+          } as ResponseInputText,
+        ],
+      } as ResponseItem;
+      this.onItem(responseItem);
+    } catch (error) {
+      if (isLoggingEnabled()) {
+        log(`DevinAgent.presentFileToAgent() error: ${SecureCredentials.sanitizeErrorMessage(error)}`);
+      }
+      
+      const errorItem = {
+        id: `error-${Date.now()}`,
+        type: "message",
+        role: "system",
+        content: [
+          {
+            type: "input_text",
+            text: `Error presenting file to Devin: ${(error as Error)?.message || String(error)}`,
+          } as ResponseInputText,
+        ],
+      } as ResponseItem;
+      this.onItem(errorItem);
+    }
+  }
 
   /**
    * Run the agent with the given input
+   * @param input Array of response input items
+   * @param previousResponseId Optional ID of a previous session to continue
+   * @param fileAttachments Optional array of file URLs to attach to the message
    */
   public async run(
     input: Array<ResponseInputItem>,
     previousResponseId: string = "",
+    fileAttachments: string[] = [],
   ): Promise<void> {
     try {
       if (this.terminated) {
@@ -456,11 +529,27 @@ export class DevinAgent {
       const effortLevel = modelName === "devin-deep" ? "deep" : "standard";
       
       try {
+        const extractedAttachments = this.extractFileAttachments(input);
+        
+        const allAttachments = [...fileAttachments, ...extractedAttachments];
+        
+        if (isLoggingEnabled() && allAttachments.length > 0) {
+          log(`DevinAgent.run(): found ${allAttachments.length} file attachments to include`);
+        }
+        
         if (this.sessionId) {
-          await this.sendMessage(this.sessionId, prompt);
+          await this.sendMessage(this.sessionId, prompt, allAttachments.length > 0 ? allAttachments : undefined);
         } else {
           this.sessionId = await this.createSession(prompt, effortLevel);
           this.onLastResponseId(this.sessionId);
+          
+          if (allAttachments.length > 0) {
+            await this.sendMessage(
+              this.sessionId, 
+              "Here are the files related to my request:", 
+              allAttachments
+            );
+          }
         }
 
         const initialResponseItem = {
@@ -511,6 +600,45 @@ export class DevinAgent {
       this.onItem(errorItem);
       this.onLoading(false);
     }
+  }
+  
+  /**
+   * Extract file attachments from input items
+   * @param input Array of response input items
+   * @returns Array of file URLs
+   */
+  private extractFileAttachments(input: Array<ResponseInputItem>): string[] {
+    const attachments: string[] = [];
+    
+    for (const item of input) {
+      // Handle message items with content
+      if (item.type === "message" && "content" in item) {
+        const messageItem = item as ResponseInputItem.Message;
+        
+        // Look for file content in the message
+        for (const contentItem of messageItem.content || []) {
+          if (contentItem.type === "input_image" && "image_url" in contentItem) {
+            const imageUrl = contentItem.image_url;
+            if (typeof imageUrl === 'string' && imageUrl) {
+              attachments.push(imageUrl);
+            }
+          }
+          
+          if (contentItem.type === "input_file" && "file_url" in contentItem) {
+            const fileUrl = contentItem.file_url;
+            if (typeof fileUrl === 'string' && fileUrl) {
+              attachments.push(fileUrl);
+            }
+          }
+        }
+      }
+    }
+    
+    if (isLoggingEnabled() && attachments.length > 0) {
+      log(`DevinAgent.extractFileAttachments(): found ${attachments.length} file attachments`);
+    }
+    
+    return attachments;
   }
 
   /**
