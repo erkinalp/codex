@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
-import { DevinAgent } from './src/utils/agent/devin/devin-agent.js';
-import { isDevinModel } from './src/utils/model-utils-devin.js';
+// Use ts-node to run TypeScript files directly
+import { DevinAgent } from './src/utils/agent/devin/devin-agent.ts';
+import { isDevinModel } from './src/utils/model-utils-devin.ts';
 
 // Simple logger
 const log = (message) => console.log(`[${new Date().toISOString()}] ${message}`);
