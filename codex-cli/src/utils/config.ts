@@ -35,9 +35,14 @@ export const OPENAI_TIMEOUT_MS =
   parseInt(process.env["OPENAI_TIMEOUT_MS"] || "0", 10) || undefined;
 export const OPENAI_BASE_URL = process.env["OPENAI_BASE_URL"] || "";
 export let OPENAI_API_KEY = process.env["OPENAI_API_KEY"] || "";
+export let DEVIN_API_KEY = process.env["DEVIN_API_KEY"] || "";
 
-export function setApiKey(apiKey: string): void {
-  OPENAI_API_KEY = apiKey;
+export function setApiKey(apiKey: string, keyType: "openai" | "devin" = "openai"): void {
+  if (keyType === "openai") {
+    OPENAI_API_KEY = apiKey;
+  } else {
+    DEVIN_API_KEY = apiKey;
+  }
 }
 
 // Formatting (quiet mode-only).
@@ -66,6 +71,7 @@ export type MemoryConfig = {
 // Represents full runtime config, including loaded instructions.
 export type AppConfig = {
   apiKey?: string;
+  DEVIN_API_KEY?: string;
   model: string;
   instructions: string;
   fullAutoErrorMode?: FullAutoErrorMode;

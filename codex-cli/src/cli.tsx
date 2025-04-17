@@ -205,15 +205,20 @@ if (cli.flags.config) {
 // ---------------------------------------------------------------------------
 
 const apiKey = process.env["OPENAI_API_KEY"];
+const devinApiKey = process.env["DEVIN_API_KEY"];
 
-if (!apiKey) {
+if (!apiKey && !devinApiKey) {
   // eslint-disable-next-line no-console
   console.error(
-    `\n${chalk.red("Missing OpenAI API key.")}\n\n` +
-      `Set the environment variable ${chalk.bold("OPENAI_API_KEY")} ` +
+    `\n${chalk.red("Missing API keys.")}\n\n` +
+      `Set the environment variable ${chalk.bold("OPENAI_API_KEY")} for OpenAI models ` +
+      `or ${chalk.bold("DEVIN_API_KEY")} for Devin models ` +
       `and re-run this command.\n` +
-      `You can create a key here: ${chalk.bold(
+      `You can create an OpenAI key here: ${chalk.bold(
         chalk.underline("https://platform.openai.com/account/api-keys"),
+      )}\n` +
+      `For Devin API access, visit: ${chalk.bold(
+        chalk.underline("https://docs.devin.ai/api-reference"),
       )}\n`,
   );
   process.exit(1);
@@ -233,6 +238,7 @@ const imagePaths = cli.flags.image as Array<string> | undefined;
 
 config = {
   apiKey,
+  DEVIN_API_KEY: devinApiKey,
   ...config,
   model: model ?? config.model,
 };

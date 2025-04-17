@@ -1,5 +1,6 @@
-import type { ApplyPatchCommand, ApprovalPolicy } from "../../approvals.js";
-import type { CommandConfirmation } from "../../utils/agent/agent-loop.js";
+import type { ApprovalPolicy } from "../../approvals.js";
+import type { AgentLoop, CommandConfirmation } from "../../utils/agent/agent-loop.js";
+import type { DevinAgent } from "../../utils/agent/devin/devin-agent.js";
 import type { AppConfig } from "../../utils/config.js";
 import type { ColorName } from "chalk";
 import type { ResponseItem } from "openai/resources/responses/responses.mjs";
@@ -15,7 +16,7 @@ import TerminalMessageHistory from "./terminal-message-history.js";
 import { formatCommandForDisplay } from "../../format-command.js";
 import { useConfirmation } from "../../hooks/use-confirmation.js";
 import { useTerminalSize } from "../../hooks/use-terminal-size.js";
-import { AgentLoop } from "../../utils/agent/agent-loop.js";
+import { createAgent } from "../../utils/agent/agent-factory.js";
 import { log, isLoggingEnabled } from "../../utils/agent/log.js";
 import { createInputItem } from "../../utils/input-utils.js";
 import { getAvailableModels } from "../../utils/model-utils.js";
@@ -72,9 +73,9 @@ export default function TerminalChat({
 
   const PWD = React.useMemo(() => shortCwd(), []);
 
-  // Keep a single AgentLoop instance alive across renders;
+  // Keep a single agent instance alive across renders;
   // recreate only when model/instructions/approvalPolicy change.
-  const agentRef = React.useRef<AgentLoop>();
+  const agentRef = React.useRef<AgentLoop | DevinAgent>();
   const [, forceUpdate] = React.useReducer((c) => c + 1, 0); // trigger re‑render
 
   // ────────────────────────────────────────────────────────────────
@@ -101,7 +102,7 @@ export default function TerminalChat({
     // Tear down any existing loop before creating a new one
     agentRef.current?.terminate();
 
-    agentRef.current = new AgentLoop({
+    agentRef.current = createAgent({
       model,
       config,
       instructions: config.instructions,
@@ -118,7 +119,7 @@ export default function TerminalChat({
       onLoading: setLoading,
       getCommandConfirmation: async (
         command: Array<string>,
-        applyPatch: ApplyPatchCommand | undefined,
+        _applyPatch: unknown,
       ): Promise<CommandConfirmation> => {
         log(`getCommandConfirmation: ${command}`);
         const commandForDisplay = formatCommandForDisplay(command);
@@ -128,7 +129,7 @@ export default function TerminalChat({
               commandForDisplay={commandForDisplay}
             />,
           );
-        return { review, customDenyMessage, applyPatch };
+        return { review, customDenyMessage, applyPatch: undefined };
       },
     });
 
@@ -266,7 +267,7 @@ export default function TerminalChat({
               model,
               approvalPolicy,
               colorsByPolicy,
-              agent,
+              agent: agent as AgentLoop,
               initialImagePaths,
             }}
           />
