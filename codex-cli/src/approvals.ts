@@ -77,13 +77,14 @@ export type ApprovalPolicy =
  */
 export function canAutoApprove(
   command: ReadonlyArray<string>,
+  workdir: string | undefined,
   policy: ApprovalPolicy,
   writableRoots: ReadonlyArray<string>,
   env: NodeJS.ProcessEnv = process.env,
 ): SafetyAssessment {
   if (command[0] === "apply_patch") {
     return command.length === 2 && typeof command[1] === "string"
-      ? canAutoApproveApplyPatch(command[1], writableRoots, policy)
+      ? canAutoApproveApplyPatch(command[1], workdir, writableRoots, policy)
       : {
           type: "reject",
           reason: "Invalid apply_patch command",
@@ -109,7 +110,12 @@ export function canAutoApprove(
   ) {
     const applyPatchArg = tryParseApplyPatch(command[2]);
     if (applyPatchArg != null) {
-      return canAutoApproveApplyPatch(applyPatchArg, writableRoots, policy);
+      return canAutoApproveApplyPatch(
+        applyPatchArg,
+        workdir,
+        writableRoots,
+        policy,
+      );
     }
 
     let bashCmd;
@@ -146,8 +152,8 @@ export function canAutoApprove(
     // bashCmd could be a mix of strings and operators, e.g.:
     //   "ls || (true && pwd)" => [ 'ls', { op: '||' }, '(', 'true', { op: '&&' }, 'pwd', ')' ]
     // We try to ensure that *every* command segment is deemed safe and that
-    // all operators belong to an allow‑list. If so, the entire expression is
-    // considered auto‑approvable.
+    // all operators belong to an allow-list. If so, the entire expression is
+    // considered auto-approvable.
 
     const shellSafe = isEntireShellExpressionSafe(bashCmd);
     if (shellSafe != null) {
@@ -173,6 +179,7 @@ export function canAutoApprove(
 
 function canAutoApproveApplyPatch(
   applyPatchArg: string,
+  workdir: string | undefined,
   writableRoots: ReadonlyArray<string>,
   policy: ApprovalPolicy,
 ): SafetyAssessment {
@@ -196,7 +203,13 @@ function canAutoApproveApplyPatch(
       break;
   }
 
-  if (isWritePatchConstrainedToWritablePaths(applyPatchArg, writableRoots)) {
+  if (
+    isWritePatchConstrainedToWritablePaths(
+      applyPatchArg,
+      workdir,
+      writableRoots,
+    )
+  ) {
     return {
       type: "auto-approve",
       reason: "apply_patch command is constrained to writable paths",
@@ -225,6 +238,7 @@ function canAutoApproveApplyPatch(
  */
 function isWritePatchConstrainedToWritablePaths(
   applyPatchArg: string,
+  workdir: string | undefined,
   writableRoots: ReadonlyArray<string>,
 ): boolean {
   // `identify_files_needed()` returns a list of files that will be modified or
@@ -239,10 +253,12 @@ function isWritePatchConstrainedToWritablePaths(
   return (
     allPathsConstrainedTowritablePaths(
       identify_files_needed(applyPatchArg),
+      workdir,
       writableRoots,
     ) &&
     allPathsConstrainedTowritablePaths(
       identify_files_added(applyPatchArg),
+      workdir,
       writableRoots,
     )
   );
@@ -250,22 +266,47 @@ function isWritePatchConstrainedToWritablePaths(
 
 function allPathsConstrainedTowritablePaths(
   candidatePaths: ReadonlyArray<string>,
+  workdir: string | undefined,
   writableRoots: ReadonlyArray<string>,
 ): boolean {
   return candidatePaths.every((candidatePath) =>
-    isPathConstrainedTowritablePaths(candidatePath, writableRoots),
+    isPathConstrainedTowritablePaths(candidatePath, workdir, writableRoots),
   );
 }
 
 /** If candidatePath is relative, it will be resolved against cwd. */
 function isPathConstrainedTowritablePaths(
   candidatePath: string,
+  workdir: string | undefined,
   writableRoots: ReadonlyArray<string>,
 ): boolean {
-  const candidateAbsolutePath = path.resolve(candidatePath);
+  const candidateAbsolutePath = resolvePathAgainstWorkdir(
+    candidatePath,
+    workdir,
+  );
+
   return writableRoots.some((writablePath) =>
     pathContains(writablePath, candidateAbsolutePath),
   );
+}
+
+/**
+ * If not already an absolute path, resolves `candidatePath` against `workdir`
+ * if specified; otherwise, against `process.cwd()`.
+ */
+export function resolvePathAgainstWorkdir(
+  candidatePath: string,
+  workdir: string | undefined,
+): string {
+  // Normalize candidatePath to prevent path traversal attacks
+  const normalizedCandidatePath = path.normalize(candidatePath);
+  if (path.isAbsolute(normalizedCandidatePath)) {
+    return normalizedCandidatePath;
+  } else if (workdir != null) {
+    return path.resolve(workdir, normalizedCandidatePath);
+  } else {
+    return path.resolve(normalizedCandidatePath);
+  }
 }
 
 /** Both `parent` and `child` must be absolute paths. */
@@ -331,7 +372,7 @@ export function isSafeCommand(
       };
     case "true":
       return {
-        reason: "No‑op (true)",
+        reason: "No-op (true)",
         group: "Utility",
       };
     case "echo":
@@ -341,16 +382,30 @@ export function isSafeCommand(
         reason: "View file contents",
         group: "Reading files",
       };
+    case "nl":
+      return {
+        reason: "View file with line numbers",
+        group: "Reading files",
+      };
     case "rg":
       return {
         reason: "Ripgrep search",
         group: "Searching",
       };
-    case "find":
-      return {
-        reason: "Find files or directories",
-        group: "Searching",
-      };
+    case "find": {
+      // Certain options to `find` allow executing arbitrary processes, so we
+      // cannot auto-approve them.
+      if (
+        command.some((arg: string) => UNSAFE_OPTIONS_FOR_FIND_COMMAND.has(arg))
+      ) {
+        break;
+      } else {
+        return {
+          reason: "Find files or directories",
+          group: "Searching",
+        };
+      }
+    }
     case "grep":
       return {
         reason: "Text search (grep)",
@@ -415,11 +470,15 @@ export function isSafeCommand(
       }
       break;
     case "sed":
+      // We allow two types of sed invocations:
+      // 1. `sed -n 1,200p FILE`
+      // 2. `sed -n 1,200p` because the file is passed via stdin, e.g.,
+      //    `nl -ba README.md | sed -n '1,200p'`
       if (
         cmd1 === "-n" &&
         isValidSedNArg(cmd2) &&
-        typeof cmd3 === "string" &&
-        command.length === 4
+        (command.length === 3 ||
+          (typeof cmd3 === "string" && command.length === 4))
       ) {
         return {
           reason: "Sed print subset",
@@ -438,12 +497,27 @@ function isValidSedNArg(arg: string | undefined): boolean {
   return arg != null && /^(\d+,)?\d+p$/.test(arg);
 }
 
+const UNSAFE_OPTIONS_FOR_FIND_COMMAND: ReadonlySet<string> = new Set([
+  // Options that can execute arbitrary commands.
+  "-exec",
+  "-execdir",
+  "-ok",
+  "-okdir",
+  // Option that deletes matching files.
+  "-delete",
+  // Options that write pathnames to a file.
+  "-fls",
+  "-fprint",
+  "-fprint0",
+  "-fprintf",
+]);
+
 // ---------------- Helper utilities for complex shell expressions -----------------
 
-// A conservative allow‑list of bash operators that do not, on their own, cause
+// A conservative allow-list of bash operators that do not, on their own, cause
 // side effects. Redirections (>, >>, <, etc.) and command substitution `$()`
 // are intentionally excluded. Parentheses used for grouping are treated as
-// strings by `shell‑quote`, so we do not add them here. Reference:
+// strings by `shell-quote`, so we do not add them here. Reference:
 // https://github.com/substack/node-shell-quote#parsecmd-opts
 const SAFE_SHELL_OPERATORS: ReadonlySet<string> = new Set([
   "&&", // logical AND
@@ -469,7 +543,7 @@ function isEntireShellExpressionSafe(
   }
 
   try {
-    // Collect command segments delimited by operators. `shell‑quote` represents
+    // Collect command segments delimited by operators. `shell-quote` represents
     // subshell grouping parentheses as literal strings "(" and ")"; treat them
     // as unsafe to keep the logic simple (since subshells could introduce
     // unexpected scope changes).
@@ -537,7 +611,7 @@ function isParseEntryWithOp(
   return (
     typeof entry === "object" &&
     entry != null &&
-    // Using the safe `in` operator keeps the check property‑safe even when
+    // Using the safe `in` operator keeps the check property-safe even when
     // `entry` is a `string`.
     "op" in entry &&
     typeof (entry as { op?: unknown }).op === "string"

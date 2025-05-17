@@ -1,4 +1,5 @@
 import type { ExecResult } from "./interface";
+import type { AppConfig } from "../../config";
 import type {
   ChildProcess,
   SpawnOptions,
@@ -7,11 +8,11 @@ import type {
   StdioPipe,
 } from "child_process";
 
-import { log, isLoggingEnabled } from "../log.js";
+import { log } from "../../logger/log.js";
+import { adaptCommandForPlatform } from "../platform-commands.js";
+import { createTruncatingCollector } from "./create-truncating-collector";
 import { spawn } from "child_process";
 import * as os from "os";
-
-const MAX_BUFFER = 1024 * 100; // 100 KB
 
 /**
  * This function should never return a rejected promise: errors should be
@@ -20,10 +21,21 @@ const MAX_BUFFER = 1024 * 100; // 100 KB
 export function exec(
   command: Array<string>,
   options: SpawnOptions,
-  _writableRoots: Array<string>,
+  config: AppConfig,
   abortSignal?: AbortSignal,
 ): Promise<ExecResult> {
-  const prog = command[0];
+  // Adapt command for the current platform (e.g., convert 'ls' to 'dir' on Windows)
+  const adaptedCommand = adaptCommandForPlatform(command);
+
+  if (JSON.stringify(adaptedCommand) !== JSON.stringify(command)) {
+    log(
+      `Command adapted for platform: ${command.join(
+        " ",
+      )} -> ${adaptedCommand.join(" ")}`,
+    );
+  }
+
+  const prog = adaptedCommand[0];
   if (typeof prog !== "string") {
     return Promise.resolve({
       stdout: "",
@@ -72,7 +84,7 @@ export function exec(
     detached: true,
   };
 
-  const child: ChildProcess = spawn(prog, command.slice(1), fullOptions);
+  const child: ChildProcess = spawn(prog, adaptedCommand.slice(1), fullOptions);
   // If an AbortSignal is provided, ensure the spawned process is terminated
   // when the signal is triggered so that cancellations propagate down to any
   // long‑running child processes. We default to SIGTERM to give the process a
@@ -80,9 +92,7 @@ export function exec(
   // timely fashion.
   if (abortSignal) {
     const abortHandler = () => {
-      if (isLoggingEnabled()) {
-        log(`raw-exec: abort signal received – killing child ${child.pid}`);
-      }
+      log(`raw-exec: abort signal received – killing child ${child.pid}`);
       const killTarget = (signal: NodeJS.Signals) => {
         if (!child.pid) {
           return;
@@ -133,37 +143,26 @@ export function exec(
   // resolve the promise and translate the failure into a regular
   // ExecResult object so the rest of the agent loop can carry on gracefully.
 
-  const stdoutChunks: Array<Buffer> = [];
-  const stderrChunks: Array<Buffer> = [];
-  let numStdoutBytes = 0;
-  let numStderrBytes = 0;
-  let hitMaxStdout = false;
-  let hitMaxStderr = false;
-
   return new Promise<ExecResult>((resolve) => {
-    child.stdout?.on("data", (data: Buffer) => {
-      if (!hitMaxStdout) {
-        numStdoutBytes += data.length;
-        if (numStdoutBytes <= MAX_BUFFER) {
-          stdoutChunks.push(data);
-        } else {
-          hitMaxStdout = true;
-        }
-      }
-    });
-    child.stderr?.on("data", (data: Buffer) => {
-      if (!hitMaxStderr) {
-        numStderrBytes += data.length;
-        if (numStderrBytes <= MAX_BUFFER) {
-          stderrChunks.push(data);
-        } else {
-          hitMaxStderr = true;
-        }
-      }
-    });
+    // Get shell output limits from config if available
+    const maxBytes = config?.tools?.shell?.maxBytes;
+    const maxLines = config?.tools?.shell?.maxLines;
+
+    // Collect stdout and stderr up to configured limits.
+    const stdoutCollector = createTruncatingCollector(
+      child.stdout!,
+      maxBytes,
+      maxLines,
+    );
+    const stderrCollector = createTruncatingCollector(
+      child.stderr!,
+      maxBytes,
+      maxLines,
+    );
+
     child.on("exit", (code, signal) => {
-      const stdout = Buffer.concat(stdoutChunks).toString("utf8");
-      const stderr = Buffer.concat(stderrChunks).toString("utf8");
+      const stdout = stdoutCollector.getString();
+      const stderr = stderrCollector.getString();
 
       // Map (code, signal) to an exit code. We expect exactly one of the two
       // values to be non-null, but we code defensively to handle the case where
@@ -179,24 +178,61 @@ export function exec(
         exitCode = 1;
       }
 
-      if (isLoggingEnabled()) {
-        log(
-          `raw-exec: child ${child.pid} exited code=${exitCode} signal=${signal}`,
-        );
-      }
-      resolve({
+      log(
+        `raw-exec: child ${child.pid} exited code=${exitCode} signal=${signal}`,
+      );
+
+      const execResult = {
         stdout,
         stderr,
         exitCode,
-      });
+      };
+      resolve(
+        addTruncationWarningsIfNecessary(
+          execResult,
+          stdoutCollector.hit,
+          stderrCollector.hit,
+        ),
+      );
     });
 
     child.on("error", (err) => {
-      resolve({
+      const execResult = {
         stdout: "",
         stderr: String(err),
         exitCode: 1,
-      });
+      };
+      resolve(
+        addTruncationWarningsIfNecessary(
+          execResult,
+          stdoutCollector.hit,
+          stderrCollector.hit,
+        ),
+      );
     });
   });
+}
+
+/**
+ * Adds a truncation warnings to stdout and stderr, if appropriate.
+ */
+function addTruncationWarningsIfNecessary(
+  execResult: ExecResult,
+  hitMaxStdout: boolean,
+  hitMaxStderr: boolean,
+): ExecResult {
+  if (!hitMaxStdout && !hitMaxStderr) {
+    return execResult;
+  } else {
+    const { stdout, stderr, exitCode } = execResult;
+    return {
+      stdout: hitMaxStdout
+        ? stdout + "\n\n[Output truncated: too many lines or bytes]"
+        : stdout,
+      stderr: hitMaxStderr
+        ? stderr + "\n\n[Output truncated: too many lines or bytes]"
+        : stderr,
+      exitCode,
+    };
+  }
 }

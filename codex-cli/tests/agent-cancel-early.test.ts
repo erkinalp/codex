@@ -67,7 +67,7 @@ vi.mock("openai", () => {
 vi.mock("../src/approvals.js", () => ({
   __esModule: true,
   alwaysApprovedCommands: new Set<string>(),
-  canAutoApprove: () => ({ type: "auto-approve", runInSandbox: false } as any),
+  canAutoApprove: () => ({ type: "auto-approve", runInSandbox: false }) as any,
 }));
 
 vi.mock("../src/format-command.js", () => ({
@@ -88,14 +88,15 @@ describe("cancel before first function_call", () => {
     const { _test } = (await import("openai")) as any;
 
     const agent = new AgentLoop({
+      additionalWritableRoots: [],
       model: "any",
       instructions: "",
       approvalPolicy: { mode: "auto" } as any,
       onItem: () => {},
       onLoading: () => {},
-      getCommandConfirmation: async () => ({ review: "yes" } as any),
+      getCommandConfirmation: async () => ({ review: "yes" }) as any,
       onLastResponseId: () => {},
-      config: { model: "any", instructions: "" },
+      config: { model: "any", instructions: "", notify: false },
     });
 
     // Start first run.

@@ -54,7 +54,7 @@ vi.mock("../src/approvals.js", () => {
     __esModule: true,
     alwaysApprovedCommands: new Set<string>(),
     canAutoApprove: () =>
-      ({ type: "auto-approve", runInSandbox: false } as any),
+      ({ type: "auto-approve", runInSandbox: false }) as any,
     isSafeCommand: () => null,
   };
 });
@@ -82,7 +82,14 @@ describe("Agent terminate (hard cancel)", () => {
   it("suppresses function_call_output and stops processing once terminate() is invoked", async () => {
     // Simulate a long‑running exec that would normally resolve with output.
     vi.spyOn(handleExec, "handleExecCommand").mockImplementation(
-      async (_args, _config, _policy, _getConf, abortSignal) => {
+      async (
+        _args,
+        _config,
+        _policy,
+        _additionalWritableRoots,
+        _getConf,
+        abortSignal,
+      ) => {
         // Wait until the abort signal is fired or 2s (whichever comes first).
         await new Promise<void>((resolve) => {
           if (abortSignal?.aborted) {
@@ -104,11 +111,12 @@ describe("Agent terminate (hard cancel)", () => {
     const agent = new AgentLoop({
       model: "any",
       instructions: "",
-      config: { model: "any", instructions: "" },
+      config: { model: "any", instructions: "", notify: false },
       approvalPolicy: { mode: "auto" } as any,
+      additionalWritableRoots: [],
       onItem: (item) => received.push(item),
       onLoading: () => {},
-      getCommandConfirmation: async () => ({ review: "yes" } as any),
+      getCommandConfirmation: async () => ({ review: "yes" }) as any,
       onLastResponseId: () => {},
     });
 
@@ -139,11 +147,12 @@ describe("Agent terminate (hard cancel)", () => {
     const agent = new AgentLoop({
       model: "any",
       instructions: "",
-      config: { model: "any", instructions: "" },
+      config: { model: "any", instructions: "", notify: false },
       approvalPolicy: { mode: "auto" } as any,
+      additionalWritableRoots: [],
       onItem: () => {},
       onLoading: () => {},
-      getCommandConfirmation: async () => ({ review: "yes" } as any),
+      getCommandConfirmation: async () => ({ review: "yes" }) as any,
       onLastResponseId: () => {},
     });
 

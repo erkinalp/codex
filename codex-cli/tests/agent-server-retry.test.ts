@@ -35,7 +35,7 @@ vi.mock("openai", () => {
 vi.mock("../src/approvals.js", () => ({
   __esModule: true,
   alwaysApprovedCommands: new Set<string>(),
-  canAutoApprove: () => ({ type: "auto-approve", runInSandbox: false } as any),
+  canAutoApprove: () => ({ type: "auto-approve", runInSandbox: false }) as any,
   isSafeCommand: () => null,
 }));
 
@@ -97,9 +97,10 @@ describe("AgentLoop – automatic retry on 5xx errors", () => {
       model: "any",
       instructions: "",
       approvalPolicy: { mode: "auto" } as any,
+      additionalWritableRoots: [],
       onItem: (i) => received.push(i),
       onLoading: () => {},
-      getCommandConfirmation: async () => ({ review: "yes" } as any),
+      getCommandConfirmation: async () => ({ review: "yes" }) as any,
       onLastResponseId: () => {},
     });
 
@@ -121,7 +122,7 @@ describe("AgentLoop – automatic retry on 5xx errors", () => {
     expect(assistant?.content?.[0]?.text).toBe("ok");
   });
 
-  it("fails after 3 attempts and surfaces system message", async () => {
+  it("fails after a few attempts and surfaces system message", async () => {
     openAiState.createSpy = vi.fn(async () => {
       const err: any = new Error("Internal Server Error");
       err.status = 502; // any 5xx
@@ -134,9 +135,10 @@ describe("AgentLoop – automatic retry on 5xx errors", () => {
       model: "any",
       instructions: "",
       approvalPolicy: { mode: "auto" } as any,
+      additionalWritableRoots: [],
       onItem: (i) => received.push(i),
       onLoading: () => {},
-      getCommandConfirmation: async () => ({ review: "yes" } as any),
+      getCommandConfirmation: async () => ({ review: "yes" }) as any,
       onLastResponseId: () => {},
     });
 
@@ -152,7 +154,7 @@ describe("AgentLoop – automatic retry on 5xx errors", () => {
 
     await new Promise((r) => setTimeout(r, 20));
 
-    expect(openAiState.createSpy).toHaveBeenCalledTimes(5);
+    expect(openAiState.createSpy).toHaveBeenCalledTimes(8);
 
     const sysMsg = received.find(
       (i) =>

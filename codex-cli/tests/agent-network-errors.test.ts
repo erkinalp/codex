@@ -45,7 +45,7 @@ vi.mock("openai", () => {
 vi.mock("../src/approvals.js", () => ({
   __esModule: true,
   alwaysApprovedCommands: new Set<string>(),
-  canAutoApprove: () => ({ type: "auto-approve", runInSandbox: false } as any),
+  canAutoApprove: () => ({ type: "auto-approve", runInSandbox: false }) as any,
   isSafeCommand: () => null,
 }));
 
@@ -109,9 +109,10 @@ describe("AgentLoop – network resilience", () => {
       model: "any",
       instructions: "",
       approvalPolicy: { mode: "auto" } as any,
+      additionalWritableRoots: [],
       onItem: (i) => received.push(i),
       onLoading: () => {},
-      getCommandConfirmation: async () => ({ review: "yes" } as any),
+      getCommandConfirmation: async () => ({ review: "yes" }) as any,
       onLastResponseId: () => {},
     });
 
@@ -150,9 +151,10 @@ describe("AgentLoop – network resilience", () => {
       model: "any",
       instructions: "",
       approvalPolicy: { mode: "auto" } as any,
+      additionalWritableRoots: [],
       onItem: (i) => received.push(i),
       onLoading: () => {},
-      getCommandConfirmation: async () => ({ review: "yes" } as any),
+      getCommandConfirmation: async () => ({ review: "yes" }) as any,
       onLastResponseId: () => {},
     });
 

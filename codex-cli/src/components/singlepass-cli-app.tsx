@@ -5,7 +5,7 @@ import type { FileOperation } from "../utils/singlepass/file_ops";
 
 import Spinner from "./vendor/ink-spinner"; // Third‑party / vendor components
 import TextInput from "./vendor/ink-text-input";
-import { OPENAI_TIMEOUT_MS, OPENAI_BASE_URL } from "../utils/config";
+import { createOpenAIClient } from "../utils/openai-client";
 import {
   generateDiffSummary,
   generateEditSummary,
@@ -20,7 +20,6 @@ import { EditedFilesSchema } from "../utils/singlepass/file_ops";
 import * as fsSync from "fs";
 import * as fsPromises from "fs/promises";
 import { Box, Text, useApp, useInput } from "ink";
-import OpenAI from "openai";
 import { zodResponseFormat } from "openai/helpers/zod";
 import path from "path";
 import React, { useEffect, useState, useRef } from "react";
@@ -393,13 +392,10 @@ export function SinglePassApp({
         files,
       });
 
-      const openai = new OpenAI({
-        apiKey: config.apiKey ?? "",
-        baseURL: OPENAI_BASE_URL || undefined,
-        timeout: OPENAI_TIMEOUT_MS,
-      });
+      const openai = createOpenAIClient(config);
       const chatResp = await openai.beta.chat.completions.parse({
         model: config.model,
+        ...(config.flexMode ? { service_tier: "flex" } : {}),
         messages: [
           {
             role: "user",

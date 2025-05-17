@@ -7,18 +7,50 @@
 // compiled `dist/` output used by the published CLI.
 
 import type { FullAutoErrorMode } from "./auto-approval-mode.js";
+import type { ReasoningEffort } from "openai/resources.mjs";
 
-import { log, isLoggingEnabled } from "./agent/log.js";
 import { AutoApprovalMode } from "./auto-approval-mode.js";
+import { log } from "./logger/log.js";
+import { providers } from "./providers.js";
+import { config as loadDotenv } from "dotenv";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { load as loadYaml, dump as dumpYaml } from "js-yaml";
 import { homedir } from "os";
 import { dirname, join, extname, resolve as resolvePath } from "path";
 
-export const DEFAULT_AGENTIC_MODEL = "o4-mini";
+// ---------------------------------------------------------------------------
+// User‑wide environment config (~/.codex.env)
+// ---------------------------------------------------------------------------
+
+// Load a user‑level dotenv file **after** process.env and any project‑local
+// .env file (loaded via "dotenv/config" in cli.tsx) are in place.  We rely on
+// dotenv's default behaviour of *not* overriding existing variables so that
+// the precedence order becomes:
+//   1. Explicit environment variables
+//   2. Project‑local .env (handled in cli.tsx)
+//   3. User‑wide ~/.codex.env (loaded here)
+// This guarantees that users can still override the global key on a per‑project
+// basis while enjoying the convenience of a persistent default.
+
+// Skip when running inside Vitest to avoid interfering with the FS mocks used
+// by tests that stub out `fs` *after* importing this module.
+const USER_WIDE_CONFIG_PATH = join(homedir(), ".codex.env");
+
+const isVitest =
+  typeof (globalThis as { vitest?: unknown }).vitest !== "undefined";
+
+if (!isVitest) {
+  loadDotenv({ path: USER_WIDE_CONFIG_PATH });
+}
+
+export const DEFAULT_AGENTIC_MODEL = "codex-mini-latest";
 export const DEFAULT_FULL_CONTEXT_MODEL = "gpt-4.1";
 export const DEFAULT_APPROVAL_MODE = AutoApprovalMode.SUGGEST;
 export const DEFAULT_INSTRUCTIONS = "";
+
+// Default shell output limits
+export const DEFAULT_SHELL_MAX_BYTES = 1024 * 10; // 10 KB
+export const DEFAULT_SHELL_MAX_LINES = 256;
 
 export const CONFIG_DIR = join(homedir(), ".codex");
 export const CONFIG_JSON_FILEPATH = join(CONFIG_DIR, "config.json");
@@ -37,23 +69,113 @@ export const OPENAI_BASE_URL = process.env["OPENAI_BASE_URL"] || "";
 export let OPENAI_API_KEY = process.env["OPENAI_API_KEY"] || "";
 export let DEVIN_API_KEY = process.env["DEVIN_API_KEY"] || "";
 
+export const AZURE_OPENAI_API_VERSION =
+  process.env["AZURE_OPENAI_API_VERSION"] || "2025-03-01-preview";
+
+export const DEFAULT_REASONING_EFFORT = "high";
+export const OPENAI_ORGANIZATION = process.env["OPENAI_ORGANIZATION"] || "";
+export const OPENAI_PROJECT = process.env["OPENAI_PROJECT"] || "";
+
+// Can be set `true` when Codex is running in an environment that is marked as already
+// considered sufficiently locked-down so that we allow running without an explicit sandbox.
+export const CODEX_UNSAFE_ALLOW_NO_SANDBOX = Boolean(
+  process.env["CODEX_UNSAFE_ALLOW_NO_SANDBOX"] || "",
+);
+
 export function setApiKey(apiKey: string, keyType: "openai" | "devin" = "openai"): void {
   if (keyType === "openai") {
     OPENAI_API_KEY = apiKey;
   } else {
     DEVIN_API_KEY = apiKey;
   }
+
 }
 
-// Formatting (quiet mode-only).
-export const PRETTY_PRINT = Boolean(process.env["PRETTY_PRINT"] || "");
+export function getBaseUrl(provider: string = "openai"): string | undefined {
+  // Check for a PROVIDER-specific override: e.g. OPENAI_BASE_URL or OLLAMA_BASE_URL.
+  const envKey = `${provider.toUpperCase()}_BASE_URL`;
+  if (process.env[envKey]) {
+    return process.env[envKey];
+  }
+
+  // Get providers config from config file.
+  const config = loadConfig();
+  const providersConfig = config.providers ?? providers;
+  const providerInfo = providersConfig[provider.toLowerCase()];
+  if (providerInfo) {
+    return providerInfo.baseURL;
+  }
+
+  // If the provider not found in the providers list and `OPENAI_BASE_URL` is set, use it.
+  if (OPENAI_BASE_URL !== "") {
+    return OPENAI_BASE_URL;
+  }
+
+  // We tried.
+  return undefined;
+}
+
+export function getApiKey(provider: string = "openai"): string | undefined {
+  const config = loadConfig();
+  const providersConfig = config.providers ?? providers;
+  const providerInfo = providersConfig[provider.toLowerCase()];
+  if (providerInfo) {
+    if (providerInfo.name === "Ollama") {
+      return process.env[providerInfo.envKey] ?? "dummy";
+    }
+    return process.env[providerInfo.envKey];
+  }
+
+  // Checking `PROVIDER_API_KEY` feels more intuitive with a custom provider.
+  const customApiKey = process.env[`${provider.toUpperCase()}_API_KEY`];
+  if (customApiKey) {
+    return customApiKey;
+  }
+
+  // If the provider not found in the providers list and `OPENAI_API_KEY` is set, use it
+  if (OPENAI_API_KEY !== "") {
+    return OPENAI_API_KEY;
+  }
+
+  // We tried.
+  return undefined;
+}
+
+export type FileOpenerScheme = "vscode" | "cursor" | "windsurf";
 
 // Represents config as persisted in config.json.
 export type StoredConfig = {
   model?: string;
+  provider?: string;
   approvalMode?: AutoApprovalMode;
   fullAutoErrorMode?: FullAutoErrorMode;
   memory?: MemoryConfig;
+  /** Whether to enable desktop notifications for responses */
+  notify?: boolean;
+  /** Disable server-side response storage (send full transcript each request) */
+  disableResponseStorage?: boolean;
+  flexMode?: boolean;
+  providers?: Record<string, { name: string; baseURL: string; envKey: string }>;
+  history?: {
+    maxSize?: number;
+    saveHistory?: boolean;
+    sensitivePatterns?: Array<string>;
+  };
+  tools?: {
+    shell?: {
+      maxBytes?: number;
+      maxLines?: number;
+    };
+  };
+  /** User-defined safe commands */
+  safeCommands?: Array<string>;
+  reasoningEffort?: ReasoningEffort;
+
+  /**
+   * URI-based file opener. This is used when linking code references in
+   * terminal output.
+   */
+  fileOpener?: FileOpenerScheme;
 };
 
 // Minimal config written on first run.  An *empty* model string ensures that
@@ -61,7 +183,7 @@ export type StoredConfig = {
 // propagating to existing users until they explicitly set a model.
 export const EMPTY_STORED_CONFIG: StoredConfig = { model: "" };
 
-// Pre‑stringified JSON variant so we don’t stringify repeatedly.
+// Pre‑stringified JSON variant so we don't stringify repeatedly.
 const EMPTY_CONFIG_JSON = JSON.stringify(EMPTY_STORED_CONFIG, null, 2) + "\n";
 
 export type MemoryConfig = {
@@ -73,18 +195,56 @@ export type AppConfig = {
   apiKey?: string;
   DEVIN_API_KEY?: string;
   model: string;
+  provider?: string;
   instructions: string;
+  approvalMode?: AutoApprovalMode;
   fullAutoErrorMode?: FullAutoErrorMode;
   memory?: MemoryConfig;
+  reasoningEffort?: ReasoningEffort;
+  /** Whether to enable desktop notifications for responses */
+  notify?: boolean;
+
+  /** Disable server-side response storage (send full transcript each request) */
+  disableResponseStorage?: boolean;
+
+  /** Enable the "flex-mode" processing mode for supported models (o3, o4-mini) */
+  flexMode?: boolean;
+  providers?: Record<string, { name: string; baseURL: string; envKey: string }>;
+  history?: {
+    maxSize: number;
+    saveHistory: boolean;
+    sensitivePatterns: Array<string>;
+  };
+  tools?: {
+    shell?: {
+      maxBytes: number;
+      maxLines: number;
+    };
+  };
+  fileOpener?: FileOpenerScheme;
 };
 
+// Formatting (quiet mode-only).
+export const PRETTY_PRINT = Boolean(process.env["PRETTY_PRINT"] || "");
+
 // ---------------------------------------------------------------------------
-// Project doc support (codex.md)
+// Project doc support (AGENTS.md / codex.md)
 // ---------------------------------------------------------------------------
 
 export const PROJECT_DOC_MAX_BYTES = 32 * 1024; // 32 kB
 
-const PROJECT_DOC_FILENAMES = ["codex.md", ".codex.md", "CODEX.md"];
+// We support multiple filenames for project-level agent instructions.  As of
+// 2025 the recommended convention is to use `AGENTS.md`, however we keep
+// the legacy `codex.md` variants for backwards-compatibility so that existing
+// repositories continue to work without changes.  The list is ordered so that
+// the first match wins – newer conventions first, older fallbacks later.
+const PROJECT_DOC_FILENAMES = [
+  "AGENTS.md", // preferred
+  "codex.md", // legacy
+  ".codex.md",
+  "CODEX.md",
+];
+const PROJECT_DOC_SEPARATOR = "\n\n--- project-doc ---\n\n";
 
 export function discoverProjectDocPath(startDir: string): string | null {
   const cwd = resolvePath(startDir);
@@ -124,7 +284,8 @@ export function discoverProjectDocPath(startDir: string): string | null {
 }
 
 /**
- * Load the project documentation markdown (codex.md) if present. If the file
+ * Load the project documentation markdown (`AGENTS.md` – or the legacy
+ * `codex.md`) if present. If the file
  * exceeds {@link PROJECT_DOC_MAX_BYTES} it will be truncated and a warning is
  * logged.
  *
@@ -209,6 +370,22 @@ export const loadConfig = (
     }
   }
 
+  if (
+    storedConfig.disableResponseStorage !== undefined &&
+    typeof storedConfig.disableResponseStorage !== "boolean"
+  ) {
+    if (storedConfig.disableResponseStorage === "true") {
+      storedConfig.disableResponseStorage = true;
+    } else if (storedConfig.disableResponseStorage === "false") {
+      storedConfig.disableResponseStorage = false;
+    } else {
+      log(
+        `[codex] Warning: 'disableResponseStorage' in config is not a boolean (got '${storedConfig.disableResponseStorage}'). Ignoring this value.`,
+      );
+      delete storedConfig.disableResponseStorage;
+    }
+  }
+
   const instructionsFilePathResolved =
     instructionsPath ?? INSTRUCTIONS_FILEPATH;
   const userInstructions = existsSync(instructionsFilePathResolved)
@@ -229,21 +406,17 @@ export const loadConfig = (
       ? resolvePath(cwd, options.projectDocPath)
       : discoverProjectDocPath(cwd);
     if (projectDocPath) {
-      if (isLoggingEnabled()) {
-        log(
-          `[codex] Loaded project doc from ${projectDocPath} (${projectDoc.length} bytes)`,
-        );
-      }
+      log(
+        `[codex] Loaded project doc from ${projectDocPath} (${projectDoc.length} bytes)`,
+      );
     } else {
-      if (isLoggingEnabled()) {
-        log(`[codex] No project doc found in ${cwd}`);
-      }
+      log(`[codex] No project doc found in ${cwd}`);
     }
   }
 
   const combinedInstructions = [userInstructions, projectDoc]
     .filter((s) => s && s.trim() !== "")
-    .join("\n\n--- project-doc ---\n\n");
+    .join(PROJECT_DOC_SEPARATOR);
 
   // Treat empty string ("" or whitespace) as absence so we can fall back to
   // the latest DEFAULT_MODEL.
@@ -258,7 +431,21 @@ export const loadConfig = (
       (options.isFullContext
         ? DEFAULT_FULL_CONTEXT_MODEL
         : DEFAULT_AGENTIC_MODEL),
+    provider: storedConfig.provider,
     instructions: combinedInstructions,
+    notify: storedConfig.notify === true,
+    approvalMode: storedConfig.approvalMode,
+    tools: {
+      shell: {
+        maxBytes:
+          storedConfig.tools?.shell?.maxBytes ?? DEFAULT_SHELL_MAX_BYTES,
+        maxLines:
+          storedConfig.tools?.shell?.maxLines ?? DEFAULT_SHELL_MAX_LINES,
+      },
+    },
+    disableResponseStorage: storedConfig.disableResponseStorage === true,
+    reasoningEffort: storedConfig.reasoningEffort,
+    fileOpener: storedConfig.fileOpener,
   };
 
   // -----------------------------------------------------------------------
@@ -318,6 +505,30 @@ export const loadConfig = (
   if (storedConfig.fullAutoErrorMode) {
     config.fullAutoErrorMode = storedConfig.fullAutoErrorMode;
   }
+  // Notification setting: enable desktop notifications when set in config
+  config.notify = storedConfig.notify === true;
+  // Flex-mode setting: enable the flex-mode service tier when set in config
+  if (storedConfig.flexMode !== undefined) {
+    config.flexMode = storedConfig.flexMode;
+  }
+
+  // Add default history config if not provided
+  if (storedConfig.history !== undefined) {
+    config.history = {
+      maxSize: storedConfig.history.maxSize ?? 1000,
+      saveHistory: storedConfig.history.saveHistory ?? true,
+      sensitivePatterns: storedConfig.history.sensitivePatterns ?? [],
+    };
+  } else {
+    config.history = {
+      maxSize: 1000,
+      saveHistory: true,
+      sensitivePatterns: [],
+    };
+  }
+
+  // Merge default providers with user configured providers in the config.
+  config.providers = { ...providers, ...storedConfig.providers };
 
   return config;
 };
@@ -347,15 +558,47 @@ export const saveConfig = (
   }
 
   const ext = extname(targetPath).toLowerCase();
-  if (ext === ".yaml" || ext === ".yml") {
-    writeFileSync(targetPath, dumpYaml({ model: config.model }), "utf-8");
-  } else {
-    writeFileSync(
-      targetPath,
-      JSON.stringify({ model: config.model }, null, 2),
-      "utf-8",
-    );
+  // Create the config object to save
+  const configToSave: StoredConfig = {
+    model: config.model,
+    provider: config.provider,
+    providers: config.providers,
+    approvalMode: config.approvalMode,
+    disableResponseStorage: config.disableResponseStorage,
+    flexMode: config.flexMode,
+    reasoningEffort: config.reasoningEffort,
+  };
+
+  // Add history settings if they exist
+  if (config.history) {
+    configToSave.history = {
+      maxSize: config.history.maxSize,
+      saveHistory: config.history.saveHistory,
+      sensitivePatterns: config.history.sensitivePatterns,
+    };
   }
 
-  writeFileSync(instructionsPath, config.instructions, "utf-8");
+  // Add tools settings if they exist
+  if (config.tools) {
+    configToSave.tools = {
+      shell: config.tools.shell
+        ? {
+            maxBytes: config.tools.shell.maxBytes,
+            maxLines: config.tools.shell.maxLines,
+          }
+        : undefined,
+    };
+  }
+
+  if (ext === ".yaml" || ext === ".yml") {
+    writeFileSync(targetPath, dumpYaml(configToSave), "utf-8");
+  } else {
+    writeFileSync(targetPath, JSON.stringify(configToSave, null, 2), "utf-8");
+  }
+
+  // Take everything before the first PROJECT_DOC_SEPARATOR (or the whole string if none).
+  const [userInstructions = ""] = config.instructions.split(
+    PROJECT_DOC_SEPARATOR,
+  );
+  writeFileSync(instructionsPath, userInstructions, "utf-8");
 };
