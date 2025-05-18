@@ -88,7 +88,7 @@ pub fn substitute_file_paths_with_urls(
         let path_str = path.to_string_lossy();
         
         let mut start_idx = 0;
-        while let Some(pos) = result[start_idx..].find(&path_str) {
+        while let Some(pos) = result[start_idx..].find(&*path_str) {
             let abs_pos = start_idx + pos;
             path_positions.push((abs_pos, abs_pos + path_str.len(), path, url));
             start_idx = abs_pos + 1;
