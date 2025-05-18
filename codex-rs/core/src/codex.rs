@@ -909,6 +909,9 @@ async fn run_turn(
         instructions,
         store,
         extra_tools,
+        approval_policy: None, // Use default approval policy
+        file_attachments: None, // No file attachments in this context
+        metadata: None, // No metadata in this context
     };
 
     let mut retries = 0;
