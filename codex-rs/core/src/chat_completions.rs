@@ -270,7 +270,11 @@ where
 
                     // Nothing aggregated – forward Completed directly.
                     return Poll::Ready(Some(Ok(ResponseEvent::Completed { response_id })));
-                } // No other `Ok` variants exist at the moment, continue polling.
+                },
+                Poll::Ready(Some(Ok(ResponseEvent::Custom { .. }))) => {
+                    tracing::debug!("Received Custom event from Devin API in chat_completions");
+                    continue;
+                }
             }
         }
     }

@@ -102,6 +102,15 @@ pub enum CodexErr {
 
     #[error("{0}")]
     Custom(String),
+    
+    #[error("{0}")]
+    Other(String),
+}
+
+impl From<base64::DecodeError> for CodexErr {
+    fn from(err: base64::DecodeError) -> Self {
+        CodexErr::Other(format!("Base64 decode error: {}", err))
+    }
 }
 
 #[derive(Debug)]
