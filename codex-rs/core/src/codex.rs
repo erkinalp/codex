@@ -982,6 +982,10 @@ async fn try_run_turn(
                 state.previous_response_id = Some(response_id);
                 break;
             }
+            ResponseEvent::Custom { .. } => {
+                tracing::debug!("Received Custom event from Devin API");
+                continue;
+            }
         }
     }
     Ok(output)
