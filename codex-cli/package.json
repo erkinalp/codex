@@ -55,6 +55,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.22.0",
+    "@types/axios": "^0.9.36",
     "@types/diff": "^7.0.2",
     "@types/express": "^5.0.1",
     "@types/js-yaml": "^4.0.9",
