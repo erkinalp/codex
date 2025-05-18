@@ -370,6 +370,41 @@ Currently, `"vscode"` is the default, though Codex does not verify VS Code is in
 
 Maximum number of bytes to read from an `AGENTS.md` file to include in the instructions sent with the first turn of a session. Defaults to 32 KiB.
 
+## Devin API Setup
+
+Codex supports integration with the Devin AI API. To use this functionality:
+
+1. Obtain a Devin API key from [https://docs.devin.ai/api-reference](https://docs.devin.ai/api-reference)
+
+2. Set the API key in your environment:
+   ```bash
+   export DEVIN_API_KEY="your-devin-api-key-here"
+   ```
+
+3. Or add it to your ~/.codex/config.toml file:
+   ```toml
+   [devin]
+   api_key = "your-devin-api-key-here"
+   default_model = "devin-standard"
+   ```
+
+4. Use Devin models with the --model flag:
+   ```bash
+   codex-rs --model devin-standard "Explain this code"
+   ```
+
+5. Use Devin-specific approval modes:
+   ```bash
+   codex-rs --model devin-standard --ask-for-approval approve-plan "Refactor this module"
+   codex-rs --model devin-standard --ask-for-approval full-auto "List files in this directory"
+   ```
+
+Devin models use different approval modes than OpenAI models:
+- `--ask-for-approval approve-plan`: Devin will create a plan and wait for your approval
+- `--ask-for-approval full-auto`: Devin will automatically execute the plan without waiting for approval
+
+Note: The confidence scoring system (🟢 🟡 🔴) will automatically interrupt execution to request user approval when confidence is not high (i.e., Medium 🟡 or Low 🔴), even in full-auto mode. This confidence score is generated server-side and appears in messages as "Confidence: [Level] [Emoji]" at multiple points: at session start, after creating a plan, and when answering code questions.
+
 ### tui
 
 Options that are specific to the TUI.
