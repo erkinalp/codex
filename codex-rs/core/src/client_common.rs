@@ -36,6 +36,9 @@ pub struct Prompt {
     
     /// Optional file attachments for Devin API.
     pub file_attachments: Option<Vec<serde_json::Value>>,
+    
+    /// Optional metadata for Devin API, including recursive session support.
+    pub metadata: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 impl Prompt {

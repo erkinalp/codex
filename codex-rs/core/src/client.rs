@@ -319,6 +319,33 @@ impl ModelClient {
             None => if prompt.store { "auto_confirm" } else { "sync_confirm" },
         };
         
+        let is_recursive = prompt.metadata.as_ref()
+            .and_then(|m| m.get("is_recursive"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+            
+        let parent_session_id = prompt.metadata.as_ref()
+            .and_then(|m| m.get("parent_session_id"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+            
+        let mut metadata = serde_json::Map::new();
+        if is_recursive {
+            metadata.insert("is_recursive".to_string(), json!(true));
+            metadata.insert("spawned_by".to_string(), json!("codex-rs"));
+        }
+        if let Some(parent_id) = parent_session_id {
+            metadata.insert("parent_session_id".to_string(), json!(parent_id));
+        }
+        
+        if let Some(prompt_metadata) = &prompt.metadata {
+            for (key, value) in prompt_metadata {
+                if key != "is_recursive" && key != "parent_session_id" {
+                    metadata.insert(key.clone(), value.clone());
+                }
+            }
+        }
+        
         let payload = serde_json::json!({
             "model": self.model,
             "instructions": full_instructions,
@@ -328,6 +355,7 @@ impl ModelClient {
             "previous_response_id": prompt.prev_id,
             "stream": true,
             "attachments": prompt.file_attachments.clone().unwrap_or_default(),
+            "metadata": metadata,
         });
 
         let base_url = self.provider.base_url.clone();
@@ -368,6 +396,13 @@ impl ModelClient {
                     let status = res.status();
                     if !(status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error()) {
                         let body = (res.text().await).unwrap_or_default();
+                        
+                        if body.contains("insufficient credits") || 
+                           body.contains("out of credits") || 
+                           body.contains("credit limit") {
+                            return Err(CodexErr::Custom("Insufficient credits. Your Devin AI account has run out of credits. Please add more credits to your account and try again.".to_string()));
+                        }
+                        
                         return Err(CodexErr::UnexpectedStatus(status, body));
                     }
 
