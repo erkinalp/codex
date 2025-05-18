@@ -99,6 +99,9 @@ pub enum CodexErr {
 
     #[error("{0}")]
     EnvVar(EnvVarError),
+
+    #[error("{0}")]
+    Custom(String),
 }
 
 #[derive(Debug)]
