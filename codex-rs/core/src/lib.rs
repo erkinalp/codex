@@ -30,6 +30,7 @@ pub use model_provider_info::ModelProviderInfo;
 pub use model_provider_info::WireApi;
 mod devin_models;
 mod file_path_detection;
+mod attachment_handler;
 mod models;
 mod project_doc;
 pub mod protocol;
