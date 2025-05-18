@@ -139,6 +139,14 @@ impl From<Vec<InputItem>> for ResponseInputItem {
                             None
                         }
                     },
+                    InputItem::FileAttachment { path, url: _ } => {
+                        tracing::debug!("Skipping file attachment {}", path.display());
+                        None // File attachments are handled separately by the Devin API client
+                    },
+                    InputItem::ReturnedAttachment { url: _, filename: _ } => {
+                        tracing::debug!("Skipping returned attachment");
+                        None // Returned attachments are handled separately by the Devin API client
+                    },
                 })
                 .collect::<Vec<ContentItem>>(),
         }

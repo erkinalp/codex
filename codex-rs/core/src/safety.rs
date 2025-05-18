@@ -39,6 +39,11 @@ pub fn assess_patch_safety(
         AskForApproval::UnlessAllowListed => {
             return SafetyCheck::AskUser;
         }
+        AskForApproval::ApprovePlan | AskForApproval::FullAuto => {
+            return SafetyCheck::AutoApprove {
+                sandbox_type: SandboxType::None,
+            };
+        }
     }
 
     if is_write_patch_constrained_to_writable_paths(action, writable_roots, cwd) {
