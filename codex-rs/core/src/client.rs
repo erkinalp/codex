@@ -27,6 +27,7 @@ use crate::client_common::Reasoning;
 use crate::client_common::ResponseEvent;
 use crate::client_common::ResponseStream;
 use crate::client_common::Summary;
+use crate::devin_models::is_devin_model;
 use crate::error::CodexErr;
 use crate::error::EnvVarError;
 use crate::error::Result;
@@ -36,6 +37,7 @@ use crate::flags::OPENAI_STREAM_IDLE_TIMEOUT_MS;
 use crate::model_provider_info::ModelProviderInfo;
 use crate::model_provider_info::WireApi;
 use crate::models::ResponseItem;
+use crate::protocol::AskForApproval;
 use crate::util::backoff;
 
 /// When serialized as JSON, this produces a valid "Tool" in the OpenAI
@@ -117,10 +119,14 @@ impl ModelClient {
         }
     }
 
-    /// Dispatches to either the Responses or Chat implementation depending on
+    /// Dispatches to either the Responses, Chat, or Devin implementation depending on
     /// the provider config.  Public callers always invoke `stream()` – the
     /// specialised helpers are private to avoid accidental misuse.
     pub async fn stream(&self, prompt: &Prompt) -> Result<ResponseStream> {
+        if self.provider.name == "Devin" || is_devin_model(&self.model) {
+            return self.stream_devin(prompt).await;
+        }
+        
         match self.provider.wire_api {
             WireApi::Responses => self.stream_responses(prompt).await,
             WireApi::Chat => {
@@ -244,6 +250,122 @@ impl ModelClient {
                     // negligible.
                     if !(status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error()) {
                         // Surface the error body to callers. Use `unwrap_or_default` per Clippy.
+                        let body = (res.text().await).unwrap_or_default();
+                        return Err(CodexErr::UnexpectedStatus(status, body));
+                    }
+
+                    if attempt > *OPENAI_REQUEST_MAX_RETRIES {
+                        return Err(CodexErr::RetryLimit(status));
+                    }
+
+                    // Pull out Retry‑After header if present.
+                    let retry_after_secs = res
+                        .headers()
+                        .get(reqwest::header::RETRY_AFTER)
+                        .and_then(|v| v.to_str().ok())
+                        .and_then(|s| s.parse::<u64>().ok());
+
+                    let delay = retry_after_secs
+                        .map(|s| Duration::from_millis(s * 1_000))
+                        .unwrap_or_else(|| backoff(attempt));
+                    tokio::time::sleep(delay).await;
+                }
+                Err(e) => {
+                    if attempt > *OPENAI_REQUEST_MAX_RETRIES {
+                        return Err(e.into());
+                    }
+                    let delay = backoff(attempt);
+                    tokio::time::sleep(delay).await;
+                }
+            }
+        }
+    }
+    
+    /// Implementation for the Devin API
+    async fn stream_devin(&self, prompt: &Prompt) -> Result<ResponseStream> {
+        if let Some(path) = &*CODEX_RS_SSE_FIXTURE {
+            // short circuit for tests
+            warn!(path, "Streaming from fixture");
+            return stream_from_fixture(path).await;
+        }
+
+        // Assemble tool list: built-in tools + any extra tools from the prompt.
+        let default_tools = if self.model.starts_with("codex") {
+            &DEFAULT_CODEX_MODEL_TOOLS
+        } else {
+            &DEFAULT_TOOLS
+        };
+        let mut tools_json = Vec::with_capacity(default_tools.len() + prompt.extra_tools.len());
+        for t in default_tools.iter() {
+            tools_json.push(serde_json::to_value(t)?);
+        }
+        tools_json.extend(
+            prompt
+                .extra_tools
+                .clone()
+                .into_iter()
+                .map(|(name, tool)| mcp_tool_to_openai_tool(name, tool)),
+        );
+
+        debug!("tools_json: {}", serde_json::to_string_pretty(&tools_json)?);
+
+        let full_instructions = prompt.get_full_instructions();
+        
+        let planning_mode = match prompt.approval_policy {
+            Some(AskForApproval::ApprovePlan) | Some(AskForApproval::UnlessAllowListed) => "sync_confirm",
+            Some(AskForApproval::FullAuto) | Some(AskForApproval::AutoEdit) => "auto_confirm",
+            Some(AskForApproval::OnFailure) | Some(AskForApproval::Never) => "auto_confirm",
+            None => if prompt.store { "auto_confirm" } else { "sync_confirm" },
+        };
+        
+        let payload = serde_json::json!({
+            "model": self.model,
+            "instructions": full_instructions,
+            "input": prompt.input,
+            "tools": tools_json,
+            "planning_mode": planning_mode,
+            "previous_response_id": prompt.prev_id,
+            "stream": true,
+            "attachments": prompt.file_attachments.clone().unwrap_or_default(),
+        });
+
+        let base_url = self.provider.base_url.clone();
+        let base_url = base_url.trim_end_matches('/');
+        let url = format!("{}/sessions", base_url);
+        debug!(url, "POST");
+        trace!("request payload: {}", serde_json::to_string(&payload)?);
+
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+
+            let api_key = self.provider.api_key()?.ok_or_else(|| {
+                CodexErr::EnvVar(EnvVarError {
+                    var: self.provider.env_key.clone().unwrap_or_default(),
+                    instructions: None,
+                })
+            })?;
+            let res = self
+                .client
+                .post(&url)
+                .bearer_auth(api_key)
+                .header(reqwest::header::ACCEPT, "text/event-stream")
+                .json(&payload)
+                .send()
+                .await;
+            match res {
+                Ok(resp) if resp.status().is_success() => {
+                    let (tx_event, rx_event) = mpsc::channel::<Result<ResponseEvent>>(16);
+
+                    // spawn task to process SSE
+                    let stream = resp.bytes_stream().map_err(CodexErr::Reqwest);
+                    tokio::spawn(process_sse(stream, tx_event));
+
+                    return Ok(ResponseStream { rx_event });
+                }
+                Ok(res) => {
+                    let status = res.status();
+                    if !(status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error()) {
                         let body = (res.text().await).unwrap_or_default();
                         return Err(CodexErr::UnexpectedStatus(status, body));
                     }
@@ -400,6 +522,42 @@ where
                         }
                     };
                 };
+            }
+            "devin.plan_created" => {
+                debug!("Devin plan created event received");
+                if let Some(resp_val) = event.response {
+                    let event = ResponseEvent::Custom {
+                        event_type: "devin.plan_created".to_string(),
+                        data: resp_val,
+                    };
+                    if tx_event.send(Ok(event)).await.is_err() {
+                        return;
+                    }
+                }
+            }
+            "devin.confidence_score" => {
+                debug!("Devin confidence score event received");
+                if let Some(resp_val) = event.response {
+                    let event = ResponseEvent::Custom {
+                        event_type: "devin.confidence_score".to_string(),
+                        data: resp_val,
+                    };
+                    if tx_event.send(Ok(event)).await.is_err() {
+                        return;
+                    }
+                }
+            }
+            "devin.attachment_created" => {
+                debug!("Devin attachment created event received");
+                if let Some(resp_val) = event.response {
+                    let event = ResponseEvent::Custom {
+                        event_type: "devin.attachment_created".to_string(),
+                        data: resp_val,
+                    };
+                    if tx_event.send(Ok(event)).await.is_err() {
+                        return;
+                    }
+                }
             }
             other => debug!(other, "sse event"),
         }

@@ -54,6 +54,10 @@ impl Prompt {
 pub enum ResponseEvent {
     OutputItemDone(ResponseItem),
     Completed { response_id: String },
+    Custom {
+        event_type: String,
+        data: serde_json::Value,
+    },
 }
 
 #[derive(Debug, Serialize)]
