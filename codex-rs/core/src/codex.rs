@@ -1831,5 +1831,6 @@ fn record_conversation_history(disable_response_storage: bool, wire_api: WireApi
     match wire_api {
         WireApi::Responses => false,
         WireApi::Chat => true,
+        WireApi::Devin => false, // Devin API is more similar to Responses API in structure
     }
 }
