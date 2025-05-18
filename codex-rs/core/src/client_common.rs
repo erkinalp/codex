@@ -30,6 +30,12 @@ pub struct Prompt {
     /// the "fully qualified" tool name (i.e., prefixed with the server name),
     /// which should be reported to the model in place of Tool::name.
     pub extra_tools: HashMap<String, mcp_types::Tool>,
+    
+    /// Optional approval policy override for this prompt.
+    pub approval_policy: Option<crate::protocol::AskForApproval>,
+    
+    /// Optional file attachments for Devin API.
+    pub file_attachments: Option<Vec<serde_json::Value>>,
 }
 
 impl Prompt {

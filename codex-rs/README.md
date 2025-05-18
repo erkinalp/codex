@@ -90,6 +90,25 @@ env_key = "OPENAI_API_KEY"
 wire_api = "chat"
 ```
 
+Codex also includes built-in support for the Devin AI API:
+
+```toml
+model = "devin-standard"
+model_provider = "devin"
+```
+
+The Devin provider is defined as follows:
+
+```toml
+[model_providers.devin]
+name = "Devin"
+base_url = "https://api.devin.ai/v1"
+env_key = "DEVIN_API_KEY"
+wire_api = "responses"
+```
+
+You'll need to set the `DEVIN_API_KEY` environment variable with your Devin API key, which you can obtain from the [Devin API documentation](https://docs.devin.ai/api-reference).
+
 ### approval_policy
 
 Determines when the user should be prompted to approve whether Codex can execute a command:

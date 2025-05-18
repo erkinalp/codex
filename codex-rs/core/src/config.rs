@@ -84,6 +84,8 @@ pub struct Config {
 
     /// Settings that govern if and what will be written to `~/.codex/history.jsonl`.
     pub history: History,
+    
+    pub devin: Option<DevinConfig>,
 
     /// Optional URI-based file opener. If set, citations to files in the model
     /// output will be hyperlinked using the specified URI scheme.
@@ -150,6 +152,14 @@ pub enum UriBasedFileOpener {
     None,
 }
 
+#[derive(Deserialize, Debug, Clone, Default, PartialEq)]
+pub struct DevinConfig {
+    pub api_key: Option<String>,
+    
+    /// Default model to use with Devin API
+    pub default_model: Option<String>,
+}
+
 impl UriBasedFileOpener {
     pub fn get_scheme(&self) -> Option<&str> {
         match self {
@@ -202,7 +212,10 @@ pub struct ConfigToml {
 
     /// Maximum number of bytes to include from an AGENTS.md project doc file.
     pub project_doc_max_bytes: Option<usize>,
-
+    
+    #[serde(default)]
+    pub devin: Option<DevinConfig>,
+    
     /// Profile to use from the `profiles` map.
     pub profile: Option<String>,
 
@@ -213,6 +226,9 @@ pub struct ConfigToml {
     /// Settings that govern if and what will be written to `~/.codex/history.jsonl`.
     #[serde(default)]
     pub history: Option<History>,
+    
+    #[serde(default)]
+    pub devin: Option<DevinConfig>,
 
     /// Optional URI-based file opener. If set, citations to files in the model
     /// output will be hyperlinked using the specified URI scheme.
@@ -413,6 +429,7 @@ impl Config {
             project_doc_max_bytes: cfg.project_doc_max_bytes.unwrap_or(PROJECT_DOC_MAX_BYTES),
             codex_home,
             history,
+            devin: cfg.devin,
             file_opener: cfg.file_opener.unwrap_or(UriBasedFileOpener::VsCode),
             tui: cfg.tui.unwrap_or_default(),
         };

@@ -128,6 +128,14 @@ pub enum AskForApproval {
     /// Never ask the user to approve commands. Failures are immediately returned
     /// to the model, and never escalated to the user for approval.
     Never,
+    
+    /// Devin mode: Approve plan before execution. Corresponds to `sync_confirm` in Devin API.
+    ApprovePlan,
+    
+    /// Devin mode: Automatically execute the plan without waiting for approval. 
+    /// Corresponds to `auto_confirm` in Devin API. 
+    /// execution to request user approval when confidence is not high (Medium 🟡 or Low 🔴).
+    FullAuto,
 }
 
 /// Determines execution restrictions for model shell commands
@@ -298,6 +306,17 @@ pub enum InputItem {
     /// `Image` variant (base64 data URL) during request serialization.
     LocalImage {
         path: std::path::PathBuf,
+    },
+    
+    FileAttachment {
+        path: std::path::PathBuf,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        url: Option<String>,
+    },
+    
+    ReturnedAttachment {
+        url: String,
+        filename: String,
     },
 }
 
@@ -533,6 +552,34 @@ pub struct Chunk {
     pub orig_index: u32,
     pub deleted_lines: Vec<String>,
     pub inserted_lines: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ConfidenceLevel {
+    High,
+    Medium,
+    Low,
+}
+
+impl ConfidenceLevel {
+    pub fn emoji(&self) -> &'static str {
+        match self {
+            ConfidenceLevel::High => "🟢",
+            ConfidenceLevel::Medium => "🟡",
+            ConfidenceLevel::Low => "🔴",
+        }
+    }
+    
+    /// Determines if user confirmation is required based on confidence level and approval policy
+    /// 
+    pub fn requires_confirmation(&self, approval_policy: &AskForApproval) -> bool {
+        match approval_policy {
+            AskForApproval::FullAuto => *self != ConfidenceLevel::High,
+            AskForApproval::ApprovePlan => true,
+            _ => true,
+        }
+    }
 }
 
 #[cfg(test)]

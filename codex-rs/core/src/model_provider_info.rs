@@ -156,6 +156,16 @@ pub fn built_in_model_providers() -> HashMap<String, ModelProviderInfo> {
                 wire_api: WireApi::Chat,
             },
         ),
+        (
+            "devin",
+            P {
+                name: "Devin".into(),
+                base_url: "https://api.devin.ai/v1".into(),
+                env_key: Some("DEVIN_API_KEY".into()),
+                env_key_instructions: Some("Create a Devin API key (https://docs.devin.ai/api-reference) and export it as an environment variable.".into()),
+                wire_api: WireApi::Responses,
+            },
+        ),
     ]
     .into_iter()
     .map(|(k, v)| (k.to_string(), v))

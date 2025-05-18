@@ -25,6 +25,12 @@ pub enum ApprovalModeCliArg {
     /// Never ask for user approval
     /// Execution failures are immediately returned to the model.
     Never,
+    
+    /// Devin mode: Approve plan before execution.
+    ApprovePlan,
+    
+    /// Devin mode: Automatically execute the plan without waiting for approval.
+    FullAuto,
 }
 
 impl From<ApprovalModeCliArg> for AskForApproval {
@@ -33,6 +39,8 @@ impl From<ApprovalModeCliArg> for AskForApproval {
             ApprovalModeCliArg::OnFailure => AskForApproval::OnFailure,
             ApprovalModeCliArg::UnlessAllowListed => AskForApproval::UnlessAllowListed,
             ApprovalModeCliArg::Never => AskForApproval::Never,
+            ApprovalModeCliArg::ApprovePlan => AskForApproval::ApprovePlan,
+            ApprovalModeCliArg::FullAuto => AskForApproval::FullAuto,
         }
     }
 }
