@@ -1,9 +1,3 @@
-//! Registry of model providers supported by Codex.
-//!
-//! Providers can be defined in two places:
-//!   1. Built-in defaults compiled into the binary so Codex works out-of-the-box.
-//!   2. User-defined entries inside `~/.codex/config.toml` under the `model_providers`
-//!      key. These override or extend the defaults at runtime.
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -12,44 +6,27 @@ use std::env::VarError;
 
 use crate::error::EnvVarError;
 
-/// Wire protocol that the provider speaks. Most third-party services only
-/// implement the classic OpenAI Chat Completions JSON schema, whereas OpenAI
-/// itself (and a handful of others) additionally expose the more modern
-/// *Responses* API. The two protocols use different request/response shapes
-/// and *cannot* be auto-detected at runtime, therefore each provider entry
-/// must declare which one it expects.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum WireApi {
-    /// The experimental “Responses” API exposed by OpenAI at `/v1/responses`.
     #[default]
     Responses,
-    /// Regular Chat Completions compatible with `/v1/chat/completions`.
     Chat,
+    Devin,
 }
 
-/// Serializable representation of a provider definition.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct ModelProviderInfo {
-    /// Friendly display name.
     pub name: String,
-    /// Base URL for the provider's OpenAI-compatible API.
     pub base_url: String,
-    /// Environment variable that stores the user's API key for this provider.
     pub env_key: Option<String>,
 
-    /// Optional instructions to help the user get a valid value for the
-    /// variable and set it.
     pub env_key_instructions: Option<String>,
 
-    /// Which wire protocol this provider expects.
     pub wire_api: WireApi,
 }
 
 impl ModelProviderInfo {
-    /// If `env_key` is Some, returns the API key for this provider if present
-    /// (and non-empty) in the environment. If `env_key` is required but
-    /// cannot be found, returns an error.
     pub fn api_key(&self) -> crate::error::Result<Option<String>> {
         match &self.env_key {
             Some(env_key) => std::env::var(env_key)
@@ -71,7 +48,6 @@ impl ModelProviderInfo {
     }
 }
 
-/// Built-in default provider list.
 pub fn built_in_model_providers() -> HashMap<String, ModelProviderInfo> {
     use ModelProviderInfo as P;
 
@@ -163,7 +139,7 @@ pub fn built_in_model_providers() -> HashMap<String, ModelProviderInfo> {
                 base_url: "https://api.devin.ai/v1".into(),
                 env_key: Some("DEVIN_API_KEY".into()),
                 env_key_instructions: Some("Create a Devin API key (https://docs.devin.ai/api-reference) and export it as an environment variable.".into()),
-                wire_api: WireApi::Responses,
+                wire_api: WireApi::Devin,
             },
         ),
     ]
