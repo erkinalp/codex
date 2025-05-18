@@ -130,6 +130,27 @@ approval_policy = "on-failure"
 approval_policy = "never"
 ```
 
+When using Devin models, there are two additional approval modes available:
+
+```toml
+# Devin will create a plan and wait for your approval before executing it
+approval_policy = "approve-plan"
+```
+
+```toml
+# Devin will automatically execute the plan without waiting for approval
+# Note: The confidence scoring system (🟢 🟡 🔴) will automatically interrupt
+# execution to request user approval when confidence is not high (Medium 🟡 or Low 🔴)
+approval_policy = "full-auto"
+```
+
+These can also be specified via command line:
+
+```bash
+codex-rs --model devin-standard --ask-for-approval approve-plan "Refactor this module"
+codex-rs --model devin-standard --ask-for-approval full-auto "List files in this directory"
+```
+
 ### profiles
 
 A _profile_ is a collection of configuration values that can be set together. Multiple profiles can be defined in `config.toml` and you can specify the one you
