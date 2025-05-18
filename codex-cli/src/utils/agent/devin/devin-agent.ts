@@ -8,7 +8,7 @@ import type {
   ResponseInputText
 } from "openai/resources/responses/responses.mjs";
 
-import { log, isLoggingEnabled } from "../log.js";
+import { log, isLoggingEnabled } from "../../logger/log.js";
 import axios from "axios";
 
 /**
