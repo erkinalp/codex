@@ -123,12 +123,13 @@ impl ModelClient {
     /// the provider config.  Public callers always invoke `stream()` – the
     /// specialised helpers are private to avoid accidental misuse.
     pub async fn stream(&self, prompt: &Prompt) -> Result<ResponseStream> {
-        if self.provider.name == "Devin" || is_devin_model(&self.model) {
+        if is_devin_model(&self.model) {
             return self.stream_devin(prompt).await;
         }
         
         match self.provider.wire_api {
             WireApi::Responses => self.stream_responses(prompt).await,
+            WireApi::Devin => self.stream_devin(prompt).await,
             WireApi::Chat => {
                 // Create the raw streaming connection first.
                 let response_stream =
